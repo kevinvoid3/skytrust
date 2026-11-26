@@ -1,0 +1,29 @@
+# 就算 repo 是私有的也一樣。repo 之後若改公開、或被誰 fork，歷史紀錄裡的 log 刪不掉。
+raw/
+*.log
+
+# ── 每次 build 自動產生的快照：檔案大、可重建 ──
+snapshots/
+
+# ── 建置設定 ──
+# realms.json / order.json 是手寫的，要進版控；manifest.json 是從 skyinfoweb 拿的， 可以重新下載
+config/manifest.json
+
+# ── 測試 ──
+index.old.html
+tests/node_modules/
+# 版面基準綁機器（字型不同像素就不同），各自記
+tests/baseline/
+# fixtures 由 tools/make_mock_*.py 從現在的資料產生
+tests/fixtures/
+tests/test-results/
+
+# ── 其他 ──
+.env
+*.zip
+__pycache__/
+.DS_Store
+Thumbs.db
+spirits.json
+friend_tree.json
+index.old.html

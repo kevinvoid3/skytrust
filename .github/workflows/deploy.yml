@@ -1,0 +1,302 @@
+name: Fetch server data and build
+
+# 遊戲改版時，自己去伺服器抓兌換樹資料、build 成 data/spirits.*.json。
+#
+#   skydownload（公開）── accesskey.json（版本＋access key）、strings/（遊戲內字串）
+#        │ 只讀公開檔，不需要任何 token
+#        ▼
+#   這個 workflow ── 抓伺服器 → build → 檢查 → 只 commit data/ 底下的處理結果
+#
+# 這個 repo 是公開的，Actions log 任何人都看得到。所以：
+#   - 抓取與建置程式放在 secrets（SKY_FETCH / SKY_BUILD），
+#     設定檔也是（SKY_REALMS / SKY_MANIFEST，選用的 SKY_ORDER），
+#     由 dev-trust 的 tools/push_secrets.py 打包上傳。repo 裡看不到程式本體
+#   - 程式解開後放在 $RUNNER_TEMP（不是 repo 工作目錄），job 結束整台機器銷毀
+#   - 伺服器原始資料也只在 $RUNNER_TEMP，絕不進 repo、不上傳 artifact
+#   - build 與抓取的錯誤輸出（traceback 會印出程式碼行）只寫進暫存檔，不印進 log
+#   - commit 前檢查：只准 data/ 底下四個檔有變動，任何 .log 出現就整個失敗
+on:
+  schedule:
+    - cron: "41 */6 * * *"        # 每 6 小時看一次 accesskey.json 有沒有新版本（UTC）
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "版本沒變也重抓，並略過「項目數驟減」檢查"
+        type: boolean
+        default: false
+
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write          # 只用在最後「要求 Pages 重建」
+
+env:
+  UPSTREAM: https://raw.githubusercontent.com/kevinvoid3/skydownload/main
+  DATA_FILES: "spirits.data.json spirits.i18n.json spirits.images.json source.json"
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download access key and strings from skydownload
+        run: |
+          set -euo pipefail
+          U="$RUNNER_TEMP/up"; mkdir -p "$U/Strings"/{zh-Hant,zh-Hans,Base}.lproj
+          get() { curl -fsSL --max-filesize 20000000 -o "$2" "$UPSTREAM/$1" || { echo "::error::下載 $1 失敗"; exit 1; }; }
+          get accesskey.json                "$U/accesskey.json"
+          # build_spirits.py 認得的是 iOS 的 lproj 結構；英文在 default.strings（en.strings 只有幾行）
+          get strings/zh-TW.strings         "$U/Strings/zh-Hant.lproj/Localizable.strings"
+          get strings/zh-CN.strings         "$U/Strings/zh-Hans.lproj/Localizable.strings"
+          get strings/default.strings       "$U/Strings/Base.lproj/Localizable.strings"
+
+      - name: Version gate
+        id: gate
+        env:
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          python3 - "$RUNNER_TEMP/up/accesskey.json" data/source.json <<'EOF'
+          import json, os, re, sys
+          ak, src = sys.argv[1:]
+          d = json.load(open(ak, encoding="utf-8"))
+          ver, key = d.get("version"), d.get("accesskey")
+          if not ver or not key:
+              print("::error::skydownload 的 accesskey.json 缺 version 或 accesskey（抽取失敗？）")
+              sys.exit(1)
+          try:
+              last = json.load(open(src, encoding="utf-8")).get("game_version")
+          except Exception:
+              last = None
+          nums = lambda s: tuple(int(x) for x in re.findall(r"\d+", str(s or "")))
+          force = os.environ.get("FORCE") == "true"
+          print(f"遊戲版本 {ver}；上次處理 {last or '（無）'}")
+          if last and nums(ver) < nums(last) and not force:
+              print(f"::error::accesskey.json 的版本比目前資料舊（{ver} < {last}）")
+              sys.exit(1)
+          run = force or ver != last
+          if not run:
+              print(f"::notice::版本沒變（{ver}），不重抓")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"run={'true' if run else 'false'}\nversion={ver}\n")
+          EOF
+
+      - name: Set up Python
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: pip install --quiet requests
+
+      - name: Unpack programs from secrets
+        if: steps.gate.outputs.run == 'true'
+        env:
+          SKY_FETCH: ${{ secrets.SKY_FETCH }}
+          SKY_BUILD: ${{ secrets.SKY_BUILD }}
+          SKY_REALMS: ${{ secrets.SKY_REALMS }}
+          SKY_MANIFEST: ${{ secrets.SKY_MANIFEST }}
+          SKY_ORDER: ${{ secrets.SKY_ORDER }}
+        run: |
+          # 解到 $RUNNER_TEMP/build，在 repo 工作目錄之外。印出 sha256 前 12 碼，
+          # 跟 push_secrets.py 上傳時印的對照，就知道上面跑的是哪一版。
+          python3 - "$RUNNER_TEMP/build" <<'EOF'
+          import base64, gzip, hashlib, os, sys
+          root = sys.argv[1]
+          plan = [("SKY_FETCH", "fetch_server.py"), ("SKY_BUILD", "build_spirits.py"),
+                  ("SKY_REALMS", "config/realms.json"), ("SKY_MANIFEST", "config/manifest.json")]
+          missing = [n for n, _ in plan if not os.environ.get(n)]
+          if os.environ.get("SKY_ORDER"):             # 選用：列內順序覆寫，目前沒用到
+              plan.append(("SKY_ORDER", "config/order.json"))
+          if missing:
+              print("::error::缺 secret：" + "、".join(missing) + "（在 dev-trust 執行 tools/push_secrets.py）")
+              sys.exit(1)
+          for name, rel in plan:
+              try:
+                  raw = gzip.decompress(base64.b64decode(os.environ[name], validate=True))
+              except Exception:
+                  print(f"::error::{name} 解不開（不是 push_secrets.py 打包的格式？）")
+                  sys.exit(1)
+              path = os.path.join(root, rel)
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              open(path, "wb").write(raw)
+              print(f"{name:<13}{hashlib.sha256(raw).hexdigest()[:12]}")
+          EOF
+
+      - name: Fetch from game server
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -uo pipefail
+          export RAW_DIR="$RUNNER_TEMP/raw"
+          export ACCESSKEY_FILE="$RUNNER_TEMP/up/accesskey.json"
+          export STAMP="$(TZ=Asia/Taipei date +%F)"
+          cd "$RUNNER_TEMP/build"
+          # stdout 是程式自己印的進度（已經過濾，不含回應內容）；stderr 可能是 traceback，
+          # 會帶出程式碼行，所以只寫進暫存檔，失敗時只印最後一行的錯誤類型
+          # Actions 的 bash 預設帶 -e，失敗會直接結束、走不到下面的訊息；用 || 接住離開碼
+          rc=0; python fetch_server.py 2> "$RUNNER_TEMP/fetch.err" || rc=$?
+          if [ $rc -ne 0 ]; then
+            last=$(grep -E '^[A-Za-z_.]*(Error|Exception)' "$RUNNER_TEMP/fetch.err" | tail -1 | cut -d: -f1 || true)
+            echo "::error::抓取失敗（離開碼 $rc${last:+，$last}）"
+            exit 1
+          fi
+
+      - name: Build spirits.*.json
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -uo pipefail
+          RAW="$RUNNER_TEMP/raw"; STAMP="$(TZ=Asia/Taipei date +%F)"; OUT="$GITHUB_WORKSPACE/data"
+          cd "$RUNNER_TEMP/build"
+          # i18n 讀網站上現在那份（人工維護的翻譯從這裡接續，build 只補不覆蓋）；
+          # images 也從現在那份接續，但會照 config/manifest.json 重算網址（覆蓋舊網址）。
+          # 設定檔是上一步從 secret 解到 config/ 的（不在 repo 裡）
+          ORDER=(); [ -f config/order.json ] && ORDER=(--order config/order.json)
+          rc=0
+          python build_spirits.py "$RAW/spirit_$STAMP.log" "$RAW/trust_tier_$STAMP.log" \
+              --quests "$RAW/quest_defs_$STAMP.log" --realms config/realms.json \
+              "${ORDER[@]}" --manifest config/manifest.json \
+              --strings "$RUNNER_TEMP/up/Strings" --out "$OUT" --no-snapshot \
+              --i18n "$OUT/spirits.i18n.json" --images "$OUT/spirits.images.json" \
+              > "$RUNNER_TEMP/build.log" 2>&1 || rc=$?
+          head -1 "$RUNNER_TEMP/build.log"      # 只印版本那行，例如 build_spirits 2026-11-17a
+          if [ $rc -ne 0 ]; then
+            last=$(grep -E '^[A-Za-z_.]*(Error|Exception)' "$RUNNER_TEMP/build.log" | tail -1 | cut -d: -f1 || true)
+            echo "::error::build 失敗（離開碼 $rc${last:+，$last}）。完整輸出含原始數值，不公開；在本機用同一份 log 重跑"
+            exit 1
+          fi
+          # 換行符號跟 repo 裡現有的檔一致：你在 Windows build 的是 CRLF、runner 寫的是 LF，
+          # 不統一的話每次 commit 都是整份檔案改動，看不出這次到底變了什麼
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'EOF'
+          import subprocess
+          for f in ("spirits.data.json", "spirits.i18n.json", "spirits.images.json"):
+              p = f"data/{f}"
+              head = subprocess.run(["git", "show", f"HEAD:{p}"], capture_output=True).stdout
+              if b"\r\n" not in head:
+                  continue
+              b = open(p, "rb").read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+              open(p, "wb").write(b)
+          EOF
+
+      - name: Write source.json
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GAME_VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, datetime
+          tz = datetime.timezone(datetime.timedelta(hours=8))
+          json.dump({"game_version": os.environ["GAME_VERSION"],
+                     "fetched": datetime.datetime.now(tz).strftime("%Y-%m-%d")},
+                    open("data/source.json", "w", encoding="utf-8"), indent=2)
+          EOF
+
+      - name: Validate output
+        if: steps.gate.outputs.run == 'true'
+        env:
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, re, subprocess, sys
+          force = os.environ.get("FORCE") == "true"
+          errors = []
+          bad = errors.append
+          load = lambda p: json.load(open(p, encoding="utf-8"))
+          try:
+              data = load("data/spirits.data.json")
+              i18n = load("data/spirits.i18n.json")
+              images = load("data/spirits.images.json")
+          except Exception as e:
+              print(f"::error::輸出不是合法 JSON：{type(e).__name__}"); sys.exit(1)
+
+          GROUP_RE = re.compile(r"^(season_\d+|elders|realm_[a-z_]+)$")
+          n = 0
+          for g, v in data.items():
+              if g == "_meta":
+                  continue
+              if not GROUP_RE.match(g) or not isinstance((v or {}).get("spirits"), dict):
+                  bad(f"分組結構不對：{g!r}"); continue
+              n += sum(len(s.get("items", [])) for s in v["spirits"].values())
+          def keys(o):
+              if isinstance(o, dict):
+                  for k, v in o.items():
+                      yield k; yield from keys(v)
+          if "file" in set(keys(data.get("_meta", {}))):
+              bad("_meta 裡出現檔名欄位")
+          for lang in ("zh-hant", "zh", "en"):
+              if not i18n.get(lang):
+                  bad(f"i18n 缺 {lang}")
+          ALLOW = "https://skyinfoweb.pages.dev/"     # 跟 spirit.html 的 CSP img-src 一致
+          for k, v in images.items():
+              if any(u and not str(u).startswith(ALLOW) for u in (v if isinstance(v, list) else [v])):
+                  bad(f"圖片網址不在 CSP 白名單：{k}"); break
+
+          # 跟上一個 commit 比項目數：上游只回了半套時擋下來
+          try:
+              old = json.loads(subprocess.run(["git", "show", "HEAD:data/spirits.data.json"],
+                                              capture_output=True, text=True, check=True).stdout)
+              m = sum(len(s.get("items", [])) for g, v in old.items() if g != "_meta"
+                      for s in (v.get("spirits") or {}).values())
+          except Exception:
+              m = None
+          if m and n < m * 0.9 and not force:
+              bad(f"項目數驟減 {m} -> {n}（確定沒問題就手動觸發並勾 force）")
+
+          if errors:
+              for e in errors[:20]: print("::error::" + e)
+              sys.exit(1)
+          print(f"檢查通過：項目 {m or '（無）'} -> {n}")
+          EOF
+
+      - name: Guard — only data/ may change
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          allowed="^data/($(echo $DATA_FILES | sed 's/\./\\./g; s/ /|/g'))$"
+          bad=$(git status --porcelain --untracked-files=all | awk '{print $NF}' | grep -vE "$allowed" || true)
+          if [ -n "$bad" ]; then
+            echo "::error::出現 data/ 四個檔以外的變動，拒絕 commit："; echo "$bad"; exit 1
+          fi
+          if git ls-files --others --cached --exclude-standard | grep -qE '\.log$'; then
+            echo "::error::repo 裡出現 .log 檔，拒絕 commit"; exit 1
+          fi
+
+      - name: Commit and push
+        id: commit
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GAME_VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git add $(for f in $DATA_FILES; do echo "data/$f"; done)
+          if git diff --cached --quiet; then
+            echo "資料沒有變化"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git commit -m "Update spirit data ($GAME_VERSION)"
+          for i in 1 2 3; do
+            git pull --rebase && git push && { echo "changed=true" >> "$GITHUB_OUTPUT"; exit 0; }
+            echo "push 失敗，第 $i 次重試..."; sleep 5
+          done
+          exit 1
+
+      # GITHUB_TOKEN 推的 commit 不會觸發其他 workflow。Pages 若是「Deploy from a branch」，
+      # 這一步主動要求重建；若 Pages 用自己的 Actions 部署，這步會失敗但不影響結果。
+      - name: Request Pages rebuild
+        if: steps.commit.outputs.changed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" --silent && echo "已要求 Pages 重建"
+
+      - name: Wipe
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/raw" "$RUNNER_TEMP/build" "$RUNNER_TEMP/up" "$RUNNER_TEMP"/*.log "$RUNNER_TEMP"/*.err

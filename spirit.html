@@ -1,0 +1,2975 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<!-- CSP：這個站沒有後端，真正要擋的是「萬一有 XSS，別讓它載外部腳本或把資料傳出去」。
+     connect-src 'self' 讓 fetch/XHR 只能打同源，script-src 不含外部來源。
+     'unsafe-inline' 拿不掉 —— 整頁是單檔內嵌 script 與 onclick 屬性，
+     所以這道 CSP 擋不了「已經存在的 XSS 執行」，只擋得了外傳與外部載入。
+     frame-ancestors 用 meta 無效（只能走 HTTP header），要防嵌入得在 Pages 設 header。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://skyinfoweb.pages.dev data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ── SEO：搜尋結果與分享預覽 ── 網址改了要一起改 canonical / og:url / JSON-LD ── -->
+<meta name="description" content="計算《Sky 光·遇》季節先祖、嚮導、常駐先祖與長老的兌換樹：解鎖需要多少季蠟、好感度門檻、還需幾天。支援季卡標示、跨季搜尋、分享連結與單檔離線版。">
+<link rel="canonical" href="https://kevinvoid3.github.io/skytrust/spirit.html">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#66a6ff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="光遇工具站 Sky Tools">
+<meta property="og:title" content="光遇先祖解鎖計算器｜季節先祖兌換樹・季蠟與好感度計算 | Sky Spirit Calculator">
+<meta property="og:description" content="計算《Sky 光·遇》季節先祖、嚮導、常駐先祖與長老的兌換樹：解鎖需要多少季蠟、好感度門檻、還需幾天。支援季卡標示、跨季搜尋、分享連結與單檔離線版。">
+<meta property="og:url" content="https://kevinvoid3.github.io/skytrust/spirit.html">
+<meta property="og:locale" content="zh_TW">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebApplication", "name": "光遇先祖解鎖計算器 Sky Spirit Calculator", "url": "https://kevinvoid3.github.io/skytrust/spirit.html", "applicationCategory": "GameApplication", "operatingSystem": "Any", "browserRequirements": "Requires JavaScript", "inLanguage": ["zh-Hant", "zh-Hans", "en"], "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "description": "計算《Sky 光·遇》季節先祖、嚮導、常駐先祖與長老的兌換樹：解鎖需要多少季蠟、好感度門檻、還需幾天。支援季卡標示、跨季搜尋、分享連結與單檔離線版。", "isPartOf": {"@type": "WebSite", "name": "光遇工具站", "url": "https://kevinvoid3.github.io/skytrust/"}}</script>
+<title>光遇先祖解鎖計算器｜季節先祖兌換樹・季蠟與好感度計算 | Sky Spirit Calculator</title>
+
+<style>
+/* --- CSS 變數：輕鬆管理亮/暗色主題 --- */
+:root {
+    --bg-color: #f4f6f8;
+    --text-color: #333;
+    --text-muted: #666;
+    --card-bg: #ffffff;
+    --header-bg: linear-gradient(135deg, #66a6ff, #89f7fe);
+    --border-color: #e0e0e0;
+    --primary-color: #66a6ff;
+    --primary-hover: #5597f0;
+    --danger-color: #e74c3c;
+    --success-color: #4a9ed4;
+    /* 版本對照專用。不沿用 --success-color：那是「已解鎖」的藍，
+       借來當「新增」會跟解鎖狀態撞色，一眼分不出是哪一種。 */
+    --diff-add: #2e9e5b;
+    --diff-chg: #e0a106;
+    --diff-del: var(--text-muted);
+    --success-bg: #eef6fc;
+    --season-color: #ff9800;
+    --season-bg: #fff3e0;
+    --item-bg: #fdfdfd;
+    /* 圖示底板「不跟主題走」，淺色深色都用同一塊深底。
+       遊戲的 UI 圖幾乎全是白色線稿，本來就畫在深色背景上；鋪在接近白的
+       #f3f5f8 上等於白壓白，淺色主題下大半的圖根本看不出畫了什麼。
+       所以這塊底板是圖的一部分，不是版面的一部分 —— [data-theme="dark"]
+       裡不再覆寫它。 */
+    --icon-bg: #3a4a63;
+    --icon-border: rgba(58,74,99,0.25);
+    --shadow: 0 4px 12px rgba(0,0,0,0.08);
+
+
+    /* ── 語意層 ──────────────────────────────────────────────
+       上面是色盤（這是什麼顏色），這裡是語意（這個顏色拿來做什麼）。
+       規則一律只引用語意層，不要直接用 --border-color。
+
+       原本 --border-color 一個人扮演四種角色（外框／分隔線／軌道／
+       表單框），想單獨調整其中一種就只能改全部，或在規則裡寫死色碼。
+       拆開之後各改各的；預設值全部指回色盤，所以拆的當下零視覺變化。
+
+       要換色就在這裡覆寫，深色主題同理（[data-theme="dark"] 裡）。      */
+    --outline:      var(--border-color);  /* 儀表板與卡片外框、先祖頭像圈 */
+    --divider:      var(--border-color);  /* 區塊之間的分隔線（含虛線） */
+    --track:        var(--border-color);  /* 進度條底槽、Lv 進度條、捲軸 */
+    --field-border: var(--border-color);  /* select / input / total-tag 的框 */
+    --field-bg:     var(--bg-color);      /* 同上的底色 */
+    --footer-bg:    var(--bg-color);      /* 卡片底部的小計區 */
+    --footer-text:  var(--text-muted);
+    /* .item 的框。沒有這一行，.item 規則裡的 var(--item-border) 會解不出來，
+       整條 border shorthand 退回初始值（border-style: none），框會直接消失。 */
+    --item-border:  var(--border-color);
+    --item-shadow:       0 1px 2px rgba(0,0,0,0.06);   /* 靜止：貼在底上 */
+    --item-shadow-hover: 0 6px 14px rgba(0,0,0,0.18);  /* 浮起 */
+    /* --item-bg 與 --season-* 本來就是語意層，直接用 */
+}
+
+[data-theme="dark"] {
+    /* 配色取自檔案 2：深紫黑底 #0c0818；強調色由淺紫(#b892ff)改為淺藍 */
+    --bg-color: #1a1a20;
+    --text-color: #f0f0f0;
+    --text-muted: #aaa;
+    --card-bg: #2a2a35;
+    --header-bg: linear-gradient(135deg, #1e3c72, #2a5298);
+    --border-color: #444;
+    --primary-color: #4e8cf5;
+    --primary-hover: #9bd2ff;
+    --item-bg: #33333e;
+    --success-color: #4a9ed4;
+    /* 版本對照專用。不沿用 --success-color：那是「已解鎖」的藍，
+       借來當「新增」會跟解鎖狀態撞色，一眼分不出是哪一種。 */
+    --diff-add: #2e9e5b;
+    --diff-chg: #e0a106;
+    --diff-del: var(--text-muted);
+    --success-bg: #07121f;
+    --season-color: #d35400;
+    --season-bg: #5a2e15;
+    /* --icon-bg / --icon-border 不在這裡覆寫：見淺色區塊的說明，它跟主題無關 */
+    --shadow: 0 4px 12px rgba(0,0,0,0.3);
+    --item-shadow:       0 1px 2px rgba(0,0,0,0.35);
+    --item-shadow-hover: 0 6px 16px rgba(0,0,0,0.55);
+}
+
+* { box-sizing: border-box; }
+/* ═══ 版面骨架：頁面、頁首、右上角控制列 ═══ */
+body { font-family: "Segoe UI", -apple-system, sans-serif; background-color: var(--bg-color); margin: 0; padding: 0; color: var(--text-color); transition: background-color 0.3s, color 0.3s; }
+
+/* --- 頂部導航列 (Flexbox 修復手機版重疊問題) --- */
+header { 
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; 
+    background: var(--header-bg); color: #fff; padding: 15px 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); gap: 10px;
+}
+.header-title { flex: 1; font-size: 20px; font-weight: bold; letter-spacing: 1px; text-align: center; min-width: 200px; order: 0;}
+.top-controls, .top-left-controls { display: flex; gap: 8px; align-items: center; }
+.lang-label { font-size: 12px; font-weight: bold; color: rgba(255,255,255,0.9); display: none;}
+.top-btn, .top-select { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; transition: 0.2s; outline: none; backdrop-filter: blur(4px); }
+.top-btn:hover, .top-select:hover { background: rgba(255,255,255,0.4); }
+.top-select option { background: #333; color: #fff; }
+
+/* --- 主控台面版 --- */
+/* ═══ 儀表板：方案、總計、進度條、全域控制列 ═══ */
+.dashboard { background-color: var(--card-bg); padding: 20px; margin: 20px auto; width: 95%; max-width: 850px; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--outline); transition: 0.3s; }
+.profile-section { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--divider); flex-wrap: wrap; }
+.profile-section select { padding: 8px; border-radius: 8px; border: 1px solid var(--field-border); outline: none; background: var(--field-bg); color: var(--text-color); font-weight: bold; }
+
+/* --- 優化數據面板 (標籤化) --- */
+.totals { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px; font-size: 13px; font-weight: bold; margin-bottom: 15px; color: var(--text-muted);}
+.total-tag { display: flex; align-items: center; background: var(--field-bg); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--field-border); }
+.totals span { font-weight: 900; color: var(--success-color); font-size: 15px; margin-left: 6px; }
+
+/* 進度條 */
+.progress-container { width: 100%; height: 10px; background: var(--track); border-radius: 5px; overflow: hidden; margin: 15px 0; }
+.progress-bar { height: 100%; background: var(--success-color); width: 0%; transition: width 0.5s ease; }
+
+.global-controls { display: flex; justify-content: center; gap: 10px; align-items: center; flex-wrap: wrap; padding-top: 10px; border-top: 1px dashed var(--divider); }
+.global-controls select { padding: 8px; border-radius: 8px; border: 1px solid var(--field-border); font-size: 14px; outline: none; background: var(--field-bg); color: var(--text-color); font-weight: bold; }
+
+/* ═══ 按鈕與表單控制項 ═══ */
+button, .btn-secondary { background-color: var(--primary-color); color: white; border: none; border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; transition: 0.2s; font-weight: bold; text-decoration: none; }
+button:hover, .btn-secondary:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+button:active, .btn-secondary:active { transform: translateY(0); }
+.btn-secondary { background-color: #888; }
+.btn-reset { background-color: var(--danger-color); }
+.pass-note { font-size: 11px; color: var(--danger-color); font-weight: bold; text-align: center; width: 100%; margin-top: 6px; line-height: 1.4; }
+.pass-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: bold; color: var(--text-color); }
+.pass-toggle input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+.num-field { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: bold; color: var(--text-color); }
+.num-field input { width: 62px; padding: 7px; border-radius: 8px; border: 1px solid var(--field-border); background: var(--field-bg); color: var(--text-color); text-align: center; font-weight: bold; }
+
+/* ═══ 先祖卡片：容器、卡片、頭像、控制列、footer ═══ */
+/* --- 先祖卡片區塊 --- */
+/* align-items:flex-start -> flex 不管高度，改由 alignCardSections() 分群指定：
+   先祖樹一群、嚮導一群，各自齊平。不能用 stretch，因為 flex 行高取決於
+   「該行最高的那一張」，嚮導（questap29 有 12 個任務）在場時所有卡都會被拉到它那麼高。 */
+/* 卡片排成一條水平帶、左右捲動。原本是 flex-wrap:wrap，手機一列只塞得下一張，
+   一季五隻就要往下捲八個螢幕。改成不換行之後，頁高＝最高的那張卡。
+   不吸附：使用者要能停在兩張卡之間，所以沒有 scroll-snap-type / scroll-snap-align。
+   （scroll-padding-left 也一併拿掉，它只對吸附與 scrollIntoView 有意義。）
+   overscroll-behavior-x: contain 留著 —— 它擋的是瀏覽器的左滑返回手勢，跟吸附無關。
+   justify-content 的 safe：卡片塞得下時置中，塞不下時自動退回 flex-start。
+   不能只寫 center —— 溢出時 center 會把第一張切掉一半，而且捲不回去
+   （捲動區取不到負的溢出區）。不支援 safe 的舊瀏覽器會整條宣告丟掉，
+   退回預設的 flex-start，也就是靠左，不會壞掉。 */
+#spiritsContainer { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 20px; padding: 15px; margin: 0 auto; max-width: 1800px;
+  justify-content: safe center;
+  overflow-x: auto; overscroll-behavior-x: contain; }
+#spiritsContainer::-webkit-scrollbar { height: 10px; }
+#spiritsContainer::-webkit-scrollbar-thumb { background: var(--track); border-radius: 5px; }
+/* 桌機的左右捲動。容器的原生捲軸在容器最底下，卡片一高（嚮導、整季五隻），
+   要先把整頁捲到底才摸得到它。所以桌機改成：
+     1. #hScroll：黏在視窗底部的「代理捲軸」，跟容器的 scrollLeft 雙向同步。
+        它是 sticky 不是 fixed —— 捲到容器底下時會自然停在容器下緣，不會蓋住頁尾。
+     2. 在卡片的空白處按住滑鼠左右拖曳（.item、按鈕、輸入框除外）。
+   原生捲軸在桌機藏起來，免得捲到底時出現兩條。
+   手機（觸控）本來就能直接左右滑，不需要這些，代理捲軸不顯示、原生行為不動。
+   Shift＋滾輪是瀏覽器內建的橫向捲動，一直都能用。 */
+#hScroll { position: sticky; bottom: 0; z-index: 30; max-width: 1800px; margin: -6px auto 0; height: 14px;
+  overflow-x: auto; overflow-y: hidden; background: var(--bg-color); }
+#hScroll > div { height: 1px; }
+#hScroll::-webkit-scrollbar { height: 10px; }
+#hScroll::-webkit-scrollbar-thumb { background: var(--track); border-radius: 5px; }
+#hScroll[hidden] { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  #spiritsContainer { scrollbar-width: none; }
+  #spiritsContainer::-webkit-scrollbar { display: none; }
+  #spiritsContainer.can-pan .spirit { cursor: grab; }
+  #spiritsContainer.panning, #spiritsContainer.panning .spirit { cursor: grabbing; user-select: none; }
+}
+@media not ((hover: hover) and (pointer: fine)) {
+  #hScroll { display: none; }
+}
+.spirit { display: flex; flex-direction: column; align-items: center; border: 1px solid var(--outline); border-radius: 16px; padding: 12px; width: 292px; flex: 0 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background-color: var(--card-bg);
+  /* 不要寫成 transition: 0.3s（= all）：卡片高度由 JS 量完寫回，
+     高度一旦有過渡動畫，下一次量到的就是動畫中途的值（實測會差 16px）。 */
+  transition: box-shadow 0.3s, border-color 0.3s, transform 0.3s, background-color 0.3s; }
+.spirit:hover { transform: translateY(-4px); box-shadow: var(--shadow); border-color: var(--primary-color); }
+.spirit-header { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: var(--text-color); text-align: center; } 
+.spirit-footer { font-size: 12px; color: var(--footer-text); text-align: center; line-height: 1.6; background: var(--footer-bg); padding: 8px; border-radius: 8px; width: 100%; }
+/* auto 吃掉卡片剩下的垂直空間 -> footer 貼在最下緣。
+   卡片被 stretch 拉到同高後，矮卡多出來的空間就落在這裡。 */
+.spirit > .spirit-footer { margin-top: auto; }
+
+.spirit-controls { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; border-top: 1px dashed var(--divider); width: 100%; font-size: 13px; }
+.input-group { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%;}
+.spirit-controls input[type="number"] { width: 45px; padding: 4px; font-size: 13px; border: 1px solid var(--field-border); border-radius: 6px; background: var(--field-bg); color: var(--text-color); text-align: center; }
+
+/* 每個 Lv 區塊 = 左邊一小段好感度進度條 + 右邊原本的那堆列。
+   進度條刻意切成一段一段掛在各區塊上，高度由 flex 自動等於該區塊，
+   所以不用量 getBoundingClientRect、不用 ResizeObserver，
+   換語言／切緊湊模式／字型載入造成的高度變化都會自動跟上。 */
+/* ═══ 兌換樹：Lv 區塊、進度條、標籤、格子 ═══ */
+.level-block { display: flex; align-items: stretch; gap: 8px; width: 100%; margin-bottom: 6px; border-top: 1px solid var(--divider); }
+.level-row { display: flex; flex-direction: column-reverse; align-items: center; padding-top: 8px; flex: 1 1 auto; min-width: 0; }
+.lv-seg { position: relative; width: 10px; flex: 0 0 auto; margin-top: 8px; border-radius: 5px; background: color-mix(in srgb, var(--track) 45%, transparent); }
+/* 填充由下往上，對應「好感度從這層的門檻往下一層累積」 */
+.lv-seg > i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 5px; display: block;
+    transition: height 0.7s cubic-bezier(.22,1,.36,1), background-color 0.4s; }
+/* 填充前端的即時好感度標籤：掛在填充頂端，隨高度動畫一起上下移動 */
+.lv-now { position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%); z-index: 3; pointer-events: none;
+    font-size: 9px; font-weight: 700; line-height: 1; padding: 2px 4px; border-radius: 8px; white-space: nowrap;
+    background: var(--card-bg); color: var(--primary-color); border: 1px solid var(--primary-color);
+    box-shadow: 0 0 8px -2px var(--primary-color); font-variant-numeric: tabular-nums; }
+body.compact .lv-now { font-size: 8px; padding: 1px 3px; }
+.lv-seg > i.done { background: var(--success-color); }
+.lv-seg > i.now  { background: var(--primary-color); }
+/* 行高寫死：標籤有沒有掛「需 N」那個 span 會讓行框差 2px（bold 與 500 的字體度量不同），
+   最高層沒有門檻的先祖（例如只有兩層的長老）就會整張卡往上位移 2px。 */
+.level-label { font-weight: bold; font-size: 12px; line-height: 16px; margin-top: 4px; color: var(--text-muted); }
+.lv-need { font-weight: 500; line-height: inherit; opacity: 0.85; }
+.lv-need.met { color: var(--success-color); opacity: 1; }
+
+.items-row { 
+    display: flex; 
+    justify-content: flex-start; 
+    gap: 6px; 
+    margin-bottom: 4px; 
+    width: 246px; /* 固定寬度：3個圖示(78*3) + 2個間距(6*2) */
+    margin-left: auto;
+    margin-right: auto;
+}
+.item { width: 78px; text-align: center; cursor: pointer; border: 1px solid var(--item-border); border-radius: 14px; padding: 4px;
+  position: relative; box-shadow: var(--item-shadow);
+  transition: border-color 0.2s, background-color 0.2s, transform 0.2s, opacity 0.2s, box-shadow 0.2s; background-color: var(--item-bg); flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; user-select: none; }
+/* hover 只給真的有滑鼠的裝置。觸控螢幕上 :hover 會在點完之後「黏住」——
+   手指早就移開，那一格還維持浮起，直到點別的地方。
+   浮起用 transform + box-shadow，兩者都不參與版面計算，不會推開鄰居；
+   原本的 scale(1.05) 會讓格子長大壓到旁邊那格。 */
+@media (hover: hover) {
+    .item:hover { border-color: var(--primary-color); transform: translateY(-3px);
+                  box-shadow: var(--item-shadow-hover); z-index: 1; }
+    .item.locked:hover { border-color: var(--item-border); transform: none;
+                         box-shadow: var(--item-shadow); }
+}
+/* 按下去的回饋，觸控也吃得到 */
+.item:active { transform: translateY(-1px); box-shadow: var(--item-shadow); }
+.item.unlocked { border-color: var(--success-color); background-color: var(--success-bg); }
+.item.locked { opacity: 0.35; filter: grayscale(1); cursor: not-allowed; }
+/* 季卡限定：原本是整格染橘＋虛線框，問題是它跟「已解鎖＝綠框」搶同一個通道——
+   季卡物品一解鎖就得把橘色整套蓋掉，兩種狀態不能同時看見。改成圖示右上角
+   掛一枚季節徽章：狀態（綠框）跟來源（徽章）各佔一個通道，互不干擾。
+   徽章絕對定位，不佔版面，所以格高維持 103px／緊湊 72px，分層不會跑掉。
+   位置是算出來的，不是試出來的：格寬 78 − 框 1×2 − 內距 4×2 = 內容 68，
+   圖 50 置中 → 圖右緣距格右緣 14px；徽章 16px 擺 right:8 讓它壓住圖的右上角，
+   同時不越出格子（越出會撞到上一列）。 */
+/* 季節項鍊本身就是一枚深底白紋的圓形徽章，自帶對比，所以不墊底色也不描邊 ——
+   只加一層投影把它跟底下的圖示分開。 */
+.pass-badge { position: absolute; top: 0; left: 6px; width: 19px; height: 19px; z-index: 2;
+              display: flex; align-items: center; justify-content: center;
+              pointer-events: none; font-size: 10px; line-height: 1; color: #fff;
+              filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45)); }
+/* 主圖的規則一律用 .item > img（直接子層）。角標的圖包在 <i> 裡，不是直接子層，
+   所以吃不到 width:50px 那組 —— 用子選擇器而不是靠加權重去壓，衝突從源頭消失。 */
+.pass-badge img { width: 150%; height: 150%; padding: 0; margin: 0; border: 0; border-radius: 0;
+                  background: none; object-fit: contain; }
+/* 退路：圖載不到（離線版、CDN 掛掉）才需要自己畫一個看得見的標記。
+   這時沒有自帶對比了，才補墊底＋兩層外圈 —— 白圈在深色主題描邊，黑圈在淺色主題描邊。 */
+.pass-badge.glyph { width: 14px; height: 14px; top: 2px; left: 9px; filter: none;
+                    border-radius: 50%; background: rgba(0,0,0,0.58);
+                    box-shadow: 0 0 0 1px rgba(255,255,255,0.45), 0 0 0 2px rgba(0,0,0,0.22); }
+.pass-badge.glyph::after { content: '✦'; }
+/* 染色圖（染料、季心）的底板不能畫在 <img> 自己身上：染色用的 feColorMatrix
+   會把元素「整個」換成同一個顏色，連 background 一起 —— 底板就變成一塊純色方塊。
+   所以染色圖外面包一層 .tint-tile，底板畫在外框，濾鏡只作用在裡面的圖。
+   外框的尺寸規則跟 .item > img 一模一樣，格子高度不變。 */
+.item > .tint-tile, .search-row .tint-tile { display: block; background: var(--icon-bg); border: 1px solid var(--icon-border); }
+.item > .tint-tile { width: 50px; height: 50px; margin: 0 auto; padding: 4px; border-radius: 12px; }
+.tint-tile > img { display: block; width: 100%; height: 100%; object-fit: contain;
+                   margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.item > img { width: 50px; height: 50px; margin: 0 auto; padding: 4px; border-radius: 12px; object-fit: contain; background: var(--icon-bg); border: 1px solid var(--icon-border); }
+/* 每一格的高度必須固定，否則同一列在不同卡片上高度不同，Lv 區塊就對不齊。
+   做法：圖固定 50px、三行字各鎖一行不換行。格寬加大到 76px 是為了讓
+   最長的幣別標籤（「季節之心: 1」/「Ascended: 250」）排得下，不必截字。 */
+.item div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item div { font-size: 10px; margin-top: 3px; line-height: 1.2; word-break: normal; font-weight: 500;}
+/* 數字那兩行縮一級：英文的「Ascended: 250」在 10px 會被截掉，數字被截比名稱被截嚴重 */
+.item div:not(.nm) { font-size: 9px; }
+
+/* ═══ 搜尋、分享、離線匯出 ═══ */
+.search-box { position: relative; }
+.search-box input { width: 150px; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--field-border);
+    background: var(--field-bg); color: var(--text-color); font-size: 13px; outline: none; }
+.search-box input:focus { border-color: var(--primary-color); }
+/* 結果清單浮在控制列上方，不擠動版面 */
+.search-results { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: 320px; max-height: 340px;
+    overflow-y: auto; background: var(--card-bg); border: 1px solid var(--outline); border-radius: 10px;
+    box-shadow: var(--shadow); text-align: left; }
+.search-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px; cursor: pointer; font-size: 12px;
+    border-bottom: 1px solid var(--divider); }
+.search-row:last-child { border-bottom: none; }
+.search-row:hover, .search-row.active { background: var(--field-bg); }
+.search-row > img, .search-row > .tint-tile { width: 26px; height: 26px; object-fit: contain; flex: 0 0 auto; border-radius: 5px;
+                  background: var(--icon-bg); padding: 2px; }
+.search-row > .tint-tile { border: 0; }
+.search-row .s-main { font-weight: bold; color: var(--text-color); }
+.search-row .s-sub { color: var(--text-muted); font-size: 11px; }
+.search-row .s-cost { margin-left: auto; color: var(--text-muted); white-space: nowrap; font-size: 11px; }
+.search-empty { padding: 12px; text-align: center; color: var(--text-muted); font-size: 12px; }
+/* 跳過去之後閃兩下，不然在一堆格子裡找不到剛剛點的是哪個 */
+.item.flash { animation: itemFlash 0.7s ease-out 3; }
+@keyframes itemFlash {
+    0%, 100% { box-shadow: var(--item-shadow); }
+    50% { box-shadow: 0 0 0 3px var(--primary-color), 0 0 14px -2px var(--primary-color); }
+}
+.share-bar { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+    margin: 0 auto 10px; padding: 10px 14px; max-width: 850px; width: 95%; border-radius: 12px;
+    background: var(--field-bg); border: 1px solid var(--primary-color); font-size: 13px; color: var(--text-color); }
+.share-bar b { color: var(--primary-color); }
+
+/* --- 版本對照：全部靠樣式表達，不新增文案 ---
+   三種狀態各佔一個視覺通道，而且都不改變格子尺寸：
+     新增  左緣綠條 + 角標 +      舊版沒有這一格
+     移除  虛線灰框、半透明灰階 + 角標 −   舊版有、現在沒有（幽靈格，不可點）
+     改動  左緣琥珀條 + 角標 ~    數值行直接寫成「舊→新」
+   角標與左緣都是絕對定位或 border-left，不佔版面流，所以格高維持 103/72px，
+   分層對齊不受影響。季卡徽章在左上角，所以對照角標放右上角，兩邊各佔一角。 */
+.item.d-add { border-left: 3px solid var(--diff-add); }
+.item.d-chg { border-left: 3px solid var(--diff-chg); }
+.item.d-del { border-style: dashed; border-color: var(--diff-del);
+              opacity: 0.45; filter: grayscale(1); cursor: default; pointer-events: none; }
+.d-mark { position: absolute; top: 0; right: 2px; z-index: 2; min-width: 13px; height: 13px;
+          border-radius: 7px; display: flex; align-items: center; justify-content: center;
+          font-size: 10px; font-weight: bold; font-style: normal; line-height: 1;
+          color: #fff; background: var(--diff-del); pointer-events: none; }
+.item.d-add .d-mark { background: var(--diff-add); }
+.item.d-chg .d-mark { background: var(--diff-chg); }
+.spirit.d-card-add { box-shadow: 0 0 0 2px var(--diff-add), var(--shadow); }
+.spirit.d-card-chg { box-shadow: 0 0 0 2px var(--diff-chg), var(--shadow); }
+.spirit-header .d-mark { position: static; margin-left: 6px; display: inline-flex; vertical-align: middle; }
+body.compact .d-mark { min-width: 10px; height: 10px; font-size: 8px; right: 1px; }
+
+.diff-bar { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
+            margin: 0 auto 10px; padding: 8px 14px; max-width: 1100px; border-radius: 8px;
+            background: var(--card-bg); border: 1px solid var(--outline); font-size: 13px; }
+.diff-bar .chip { display: inline-flex; align-items: center; gap: 4px; }
+.diff-bar .sw { width: 12px; height: 12px; border-radius: 6px; display: inline-block; }
+.diff-bar b { color: var(--primary-color); }
+.diff-bar .stamp { font-variant-numeric: tabular-nums; }
+/* 版本歷史：卡片右上角的入口、標題下的版本標籤。
+   入口用絕對定位釘在卡片角落。第一版把它放進標題文字裡，
+   標題因此長高 1～3px，名字長的卡甚至被擠到換行、長高 20px —— 卡片高度一變，
+   分層對齊就整排跑掉。絕對定位不佔版面，卡片高度一個像素都不會動。
+   .spirit 加 position:relative 是為了讓它成為定位基準；卡片裡其他絕對定位的元素
+   （進度條填充、角標）各自都有更近的定位祖先，不受影響。 */
+.spirit { position: relative; }
+/* 有 🕒 的時候，標題左右各讓出按鈕的寬度（對稱才能維持置中）。
+   整排卡片都會有按鈕，所以每張卡讓出的空間一樣，標題高度照樣由 alignCardSections 補齊。 */
+.spirit.has-hist .spirit-header { padding: 0 34px; }
+.hist-btn { position: absolute; top: 8px; right: 8px; z-index: 3; padding: 0 6px; height: 22px;
+            line-height: 20px; font-size: 13px; border-radius: 11px; border: 1px solid var(--outline);
+            background: var(--field-bg); color: var(--text-color); cursor: pointer; }
+.hist-btn:hover { border-color: var(--primary-color); }
+.ver-tag { font-size: 12px; font-weight: normal; color: var(--text-muted); margin-top: 3px;
+           font-variant-numeric: tabular-nums; }
+.ver-tag.cur { color: var(--primary-color); font-weight: bold; }
+.ver-tag .warn { color: var(--diff-chg); margin-left: 4px; cursor: help; }
+
+/* ═══ 緊湊模式：只改尺寸，版面邏輯不動 ═══ */
+/* --- 緊湊模式 --- */
+/* 只改尺寸，不動版面邏輯：row/col 都是 Python 算好的，這裡不碰。
+   高度的大頭是名稱那行會 break-all 折成兩行，所以緊湊模式把它壓成一行加省略號
+   （全名進 title，滑過去看），圖示 50 -> 32px。
+   單格 107 -> 74px，最長的嚮導卡（questap31）約少掉四分之一。 */
+body.compact .items-row { width: 146px; gap: 4px; }
+body.compact .item { width: 46px; padding: 3px; border-radius: 10px; }
+@media (hover: hover) { body.compact .item:hover { transform: translateY(-2px); } }
+body.compact .item div { font-size: 9px; margin-top: 1px; line-height: 1.15; }
+/* 圖示不跟著格寬縮：格子要夠寬才塞得下「季蠟: 12」一行，但高度要靠小圖省，
+   所以這裡把圖固定 30px，不用 width:100%（一縮就是正方形，寬高一起掉）。 */
+body.compact .item > img { width: 30px; height: 30px; margin: 0 auto; padding: 2px; border-radius: 8px; }
+body.compact .item > .tint-tile { width: 30px; height: 30px; padding: 2px; border-radius: 8px; }
+/* 緊湊：格寬 46 − 1×2 − 3×2 = 38，圖 30 置中 → 圖右緣距格右緣 8px */
+body.compact .pass-badge { width: 13px; height: 13px; left: 2px; top: 0; font-size: 7px; }
+body.compact .pass-badge.glyph { width: 10px; height: 10px; left: 5px; top: 1px; }
+.item .short { display: none; }
+body.compact .item .full { display: none; }
+body.compact .item .short { display: inline; }
+body.compact .level-row { padding-top: 5px; }
+body.compact .level-block { gap: 5px; margin-bottom: 4px; }
+body.compact .lv-seg { width: 7px; margin-top: 5px; border-radius: 4px; }
+body.compact .level-label { font-size: 11px; line-height: 15px; margin-top: 2px; }
+body.compact .spirit { width: 188px; padding: 10px; }
+body.compact .spirit-header { font-size: 14px; }
+
+/* Toast 提示條 */
+#toastContainer { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1001; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.toast { background: rgba(50, 50, 50, 0.95); color: #fff; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: toastFadeIn 0.3s, toastFadeOut 0.3s 2.7s forwards; }
+@keyframes toastFadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toastFadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+@media (max-width: 480px) {
+    .header-title { order: -1; min-width: 100%; margin-bottom: 10px; }
+    #spiritsContainer { gap: 15px; padding: 10px; }
+    .lang-label { display: none; }
+}
+.collapse-arrow { font-size: 14px; transition: transform 0.25s ease; color: var(--text-muted); }
+.collapsible-header.collapsed .collapse-arrow { transform: rotate(-90deg); }
+.collapsible-body { overflow: hidden; max-height: 2000px; transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.25s ease; opacity: 1; margin-top: 8px; }
+.collapsible-body.collapsed { max-height: 0; opacity: 0; margin-top: 0; }
+.version-item { border-left: 3px solid var(--danger-color); padding: 4px 0 4px 12px; margin-bottom: 10px; }
+.version-header { display: flex; gap: 10px; align-items: baseline; }
+.version-tag { font-weight: bold; font-size: 13px; }
+.version-date { font-size: 11px; color: var(--text-muted); }
+.version-content { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-muted); }
+
+</style>
+</head>
+<body>
+
+<header>
+    <div class="top-left-controls">
+        <span id="ui-lang-label">語言</span>
+        <select id="langSelect" class="top-select" onchange="changeLang()">
+            <option value="zh-hant">繁體中文</option>
+            <option value="zh">简体中文</option>
+            <option value="en">English</option>
+        </select>
+    </div>
+    <div class="header-title" id="ui-title">先祖解鎖計算器</div>
+    <div class="top-controls">
+        <button class="top-btn" onclick="toggleTheme()">🌓 Theme</button>
+        <a href="index.html" class="top-btn">🏠 Home</a>
+    </div>
+    
+</header>
+
+<div class="dashboard">
+    <div class="profile-section">
+        <select id="profileSelect" onchange="switchProfile()"></select>
+        <button onclick="addProfile()" id="ui-add-profile">➕ 新增方案</button>
+        <button class="btn-reset" onclick="deleteProfile()" id="ui-del-profile">刪除</button>
+    </div>
+
+    <!-- 數據標籤化，避免手機版斷行混亂；幣別標籤由 JS 動態產生 -->
+    <div class="totals" id="totalsRow"></div>
+
+    <div class="progress-container">
+        <div class="progress-bar" id="seasonProgressBar"></div>
+    </div>
+
+    <div class="global-controls">
+        <label class="pass-toggle">
+            <input type="checkbox" id="passToggle" onchange="togglePass()">
+            <span id="ui-pass">擁有季卡且季節進行中</span>
+        </label>
+        <label class="pass-toggle" id="hideRewardWrap" style="display:none">
+            <input type="checkbox" id="hideRewardToggle" onchange="toggleHideReward()">
+            <span id="ui-hidereward">隱藏季節限定物品</span>
+        </label>
+        <label class="pass-toggle">
+            <input type="checkbox" id="compactToggle" onchange="toggleCompact()">
+            <span id="ui-compact">緊湊模式</span>
+        </label>
+        <div class="num-field">
+            <span id="ui-daily">每日季蠟</span>
+            <input type="number" id="dailyGain" min="0" step="1" onchange="updateEconomy()">
+        </div>
+        <div class="num-field">
+            <span id="ui-initial">起始季蠟</span>
+            <input type="number" id="initialCandle" min="0" step="1" onchange="updateEconomy()">
+        </div>
+        <div class="num-field search-box">
+            <input type="text" id="searchInput" placeholder="搜尋項目" autocomplete="off"
+                   oninput="runSearch()" onkeydown="searchKey(event)" onblur="setTimeout(closeSearch, 150)">
+            <div class="search-results" id="searchResults" style="display:none"></div>
+        </div>
+        <select id="seasonSelect" onchange="switchSeason()"></select>
+        <button class="btn-reset" onclick="resetSeason()" id="ui-reset-season">重置當前季節</button>
+        <button class="btn-secondary" onclick="exportData()" id="ui-export">📥 匯出</button>
+        <button class="btn-secondary" onclick="document.getElementById('importFile').click()" id="ui-import">📤 匯入</button>
+        <input type="file" id="importFile" accept=".json" style="display:none;" onchange="importData(event)">
+        <button class="btn-secondary" onclick="shareLink()" id="ui-share">🔗 分享連結</button>
+        <button class="btn-secondary" onclick="exportOffline()" id="ui-offline">💾 離線版</button>
+        <button class="btn-secondary" onclick="toggleDiff()" id="ui-diff" style="display:none">⇄ 版本對照</button>
+        <input type="file" id="diffFile" accept=".json" multiple style="display:none;" onchange="loadPrevFile(event)">
+
+        <div class="collapsible-header" id="changelog-header" onclick="toggleChangelog()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+        <span>📝 更新紀錄</span>
+        <span class="collapse-arrow">▼</span>
+        </div>
+
+        <div class="collapsible-body" id="changelog-body">
+            <div id="changelog-list"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 染色用的 filter 定義，執行時動態加進來（見 tintFilter） -->
+<svg id="tintDefs" width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true"></svg>
+<div id="shareBar" class="share-bar" style="display:none"></div>
+<div id="diffBar" class="diff-bar" style="display:none"></div>
+<div id="spiritsContainer"></div>
+<div id="hScroll" hidden aria-hidden="true"><div></div></div>
+<div id="toastContainer"></div>
+
+<script>
+const uiDict = {
+    'zh-hant': { langLabel: '語言', title: '先祖解鎖計算器', home: '🏠 首頁', addProf: '➕ 新增方案', delProf: '刪除', t1: '總需求', t2: '總好感度:', t3: '已花', t4: '還需天數:', resetSeason: '重置當前季節', compExp: '陪伴好感度', resetSpirit: '重置進度', cst: '季蠟', exp: '好感', profPrompt: '請輸入自定義解鎖方案名稱：', errReq: '你還不能解鎖', errReq2: '需要總好感度達到', export: '📥 匯出', import: '📤 匯入', addExp: '增加', day: '天', guide: '(嚮導)', tierLbl: '可達等級', partialNote: '本季另有 {n} 隻舊版格式先祖尚未收錄',
+        pass: '擁有季卡且季節進行中', hideReward: '隱藏季節限定物品', search: '搜尋項目', searchNone: '找不到符合的項目', saveFail: '⚠️ 進度存不進去（瀏覽器儲存空間已滿或被封鎖）', searchMore: '顯示前 {shown} 筆，共 {total} 筆，再輸入細一點', searchHidden: '這個項目目前被隱藏（取消「隱藏畢業禮」才看得到）', share: '🔗 分享連結', shareCopied: '連結已複製', shareViewing: '正在檢視分享的進度（唯讀）', shareApply: '套用到我的方案', shareLeave: '離開', shareApplied: '已套用', shareReadonly: '唯讀模式，請先套用或離開', shareStale: '這個連結是舊版資料產生的，無法對應目前的項目', offline: '💾 離線版', offlineWait: '打包中…', offlineDone: '已下載單檔離線版', offlineFail: '匯出失敗，請用瀏覽器開啟（不能從本機檔案匯出）', compact: '緊湊模式', needExp: '需', daily: '每日季蠟', initial: '起始季蠟', noPassNote: '無季卡：季卡限定項目（含季心）無法取得', importBad: '⚠️ 匯入檔含不合法欄位，已略過', diff: '⇄ 版本對照' },
+    'zh': { langLabel: '语言', title: '先祖解锁计算器', home: '🏠 首页', addProf: '➕ 新增方案', delProf: '删除', t1: '总需求', t2: '总好感度:', t3: '已花', t4: '还需天数:', resetSeason: '重置当前季节', compExp: '陪伴好感度', resetSpirit: '重置进度', cst: '季蜡', exp: '好感', profPrompt: '请输入自定义解锁方案名称：', errReq: '你还不能解锁', errReq2: '需要总好感度达到', export: '📥 导出', import: '📤 导入', addExp: '增加', day: '天', guide: '(向导)', tierLbl: '可达等级', partialNote: '本季另有 {n} 只旧版格式先祖尚未收录',
+        pass: '拥有季卡且季节进行中', hideReward: '隐藏季节限定物品', search: '搜索项目', searchNone: '找不到符合的项目', saveFail: '⚠️ 进度存不进去（浏览器存储空间已满或被封锁）', searchMore: '显示前 {shown} 笔，共 {total} 笔，再输入细一点', searchHidden: '这个项目目前被隐藏（取消「隐藏毕业礼」才看得到）', share: '🔗 分享链接', shareCopied: '链接已复制', shareViewing: '正在查看分享的进度（只读）', shareApply: '套用到我的方案', shareLeave: '离开', shareApplied: '已套用', shareReadonly: '只读模式，请先套用或离开', shareStale: '这个链接是旧版数据生成的，无法对应目前的项目', offline: '💾 离线版', offlineWait: '打包中…', offlineDone: '已下载单档离线版', offlineFail: '导出失败，请用浏览器打开（不能从本地文件导出）', compact: '紧凑模式', needExp: '需', daily: '每日季蜡', initial: '起始季蜡', noPassNote: '无季卡：季卡限定项目（含季心）无法取得', importBad: '⚠️ 导入档含不合法栏位，已略过', diff: '⇄ 版本对照' },
+    'en': { langLabel: 'Lang', title: 'Spirit Calculator', home: '🏠 Home', addProf: '➕ Add Profile', delProf: 'Delete', t1: 'Required', t2: 'Total Affection:', t3: 'Spent', t4: 'Days Left:', resetSeason: 'Reset Season', compExp: 'Companion Aff.', resetSpirit: 'Reset Progress', cst: 'Cost', exp: 'Aff.', profPrompt: 'Enter profile name:', errReq: 'Cannot unlock', errReq2: 'Requires total affection:', export: '📥 Export', import: '📤 Import', addExp: 'Add', day: 'd', guide: '(Guide)', tierLbl: 'Max tier', partialNote: '{n} more legacy-format spirits in this season are not yet included',
+        pass: 'Have Season Pass and Season In Progress', hideReward: 'Hide season-limited items', search: 'Search items', searchNone: 'No matching item', saveFail: '⚠️ Could not save progress (storage full or blocked)', searchMore: 'Showing {shown} of {total} — refine the search', searchHidden: 'That item is hidden right now (turn off "Hide Season Heart items")', share: '🔗 Share link', shareCopied: 'Link copied', shareViewing: 'Viewing shared progress (read-only)', shareApply: 'Apply to my profile', shareLeave: 'Leave', shareApplied: 'Applied', shareReadonly: 'Read-only — apply or leave first', shareStale: 'This link was made from older data and no longer lines up', offline: '💾 Offline file', offlineWait: 'Packing...', offlineDone: 'Offline single-file saved', offlineFail: 'Export failed — open the page over http, not from a local file', compact: 'Compact', needExp: 'need', daily: 'Candles/day', initial: 'Starting', noPassNote: 'No pass: pass-exclusive items (incl. Season Heart) are unobtainable', importBad: '⚠️ Import contained invalid keys; they were skipped', diff: '⇄ Compare' }
+};
+
+
+/* --- 幣別定義：成本向量化的單一事實來源 --- */
+const CURRENCIES = {
+    season_candle: { 'zh-hant': '季蠟',   'zh': '季蜡',   'en': 'S.Candle', icon: '🕯️', primary: true },
+    candles:       { 'zh-hant': '蠟燭',   'zh': '蜡烛',   'en': 'Candle',   icon: '🕯' },
+    heart:         { 'zh-hant': '愛心',   'zh': '爱心',   'en': 'Heart',    icon: '💛' },
+    season_heart:  { 'zh-hant': '季節之心','zh': '季节之心','en': 'S.Heart',  icon: '💙' },
+    prestige:      { 'zh-hant': '升華蠟燭','zh': '升华蜡烛','en': 'Ascended', icon: '✨' }
+};
+const PRIMARY_CURRENCY = 'season_candle';
+function curLabel(code) {
+    const c = CURRENCIES[code];
+    return c ? (c[currentLang] || c['en']) : code;
+}
+/* 季卡經濟參數：日產與起始量 */
+const PASS_ECONOMY = { withPass: { daily: 6 }, noPass: { daily: 5 } };
+
+const versionData = [
+    { ver: 'v2.5.0', date: '2026-11-20',
+        changes: {
+            'zh-hant': [
+                '進度儲存格式更新：改以項目本身識別，遊戲調整兌換樹順序時，已勾選的進度不會錯位',
+                '舊版（v1）的勾選紀錄與匯出檔無法沿用，升級後需要重新勾選',
+                '修正多數舊季嚮導的各層好感度門檻：原本誤用一般先祖的門檻，後幾層顯示偏高',
+                '季卡限定項目改以圖示左上角的季節項鍊徽章標示，取代整格橘色；已解鎖的外框與季卡標記可以同時看見',
+                '圖示底板統一為石板藍，白色線稿圖示在淺色與深色主題下都清楚可見',
+                '電腦版：左右捲動的捲軸固定在視窗底部，不必先捲到頁面最下方；也可以按住卡片空白處左右拖曳',
+                '染料依顏色、季心依季節顯示對應的圖示與顏色',
+                '移除先祖頭像，卡片更精簡',
+                '搜尋改為完整掃描所有分組，結果過多時會顯示總筆數',
+                '加強匯入、分享連結與離線版匯出的安全檢查'
+            ],
+            'zh': [
+                '进度存储格式更新：改以项目本身识别，游戏调整兑换树顺序时，已勾选的进度不会错位',
+                '旧版（v1）的勾选记录与导出档无法沿用，升级后需要重新勾选',
+                '修正多数旧季向导的各层好感度门槛：原本误用一般先祖的门槛，后几层显示偏高',
+                '季卡限定项目改以图标左上角的季节项链徽章标示，取代整格橙色；已解锁的外框与季卡标记可以同时看见',
+                '图标底板统一为石板蓝，白色线稿图标在浅色与深色主题下都清楚可见',
+                '电脑版：左右滚动的滚动条固定在窗口底部，不必先滚到页面最下方；也可以按住卡片空白处左右拖动',
+                '染料依颜色、季心依季节显示对应的图标与颜色',
+                '移除先祖头像，卡片更精简',
+                '搜索改为完整扫描所有分组，结果过多时会显示总笔数',
+                '加强导入、分享链接与离线版导出的安全检查'
+            ],
+            'en': [
+                'New progress storage format: items are identified by what they are, so ticks stay on the right item when the game reorders a tree',
+                'Progress and export files from v1 cannot be carried over; please tick your items again after upgrading',
+                'Fixed tier affection thresholds for most older guides: they were using the regular spirit thresholds, so the upper tiers showed too high',
+                'Season Pass items are now marked with the season pendant badge in the top-left corner instead of an orange cell, so the unlocked frame and the pass mark show together',
+                'Icon tiles now use a slate-blue background, so the white line-art icons are readable in both light and dark themes',
+                'Desktop: the horizontal scrollbar now stays pinned to the bottom of the window, so you no longer have to scroll to the end of the page; you can also drag left and right on the blank part of a card',
+                'Dyes show their own colour and Season Hearts their season\'s colour',
+                'Removed spirit portraits for a more compact card',
+                'Search now scans every group and shows the total when there are too many results',
+                'Hardened import, share links and offline export against malformed input'
+            ]
+        }
+    },
+    { ver: 'v2.0.0', date: '2026-11-12',
+        changes: {
+            'zh-hant': [
+                '版面改為水平卷軸：所有先祖排成一條，左右滑動切換，手機頁高大幅縮短',
+                '新增緊湊模式（手機預設開啟），單格高度減少三成',
+                '新增跨分組搜尋：輸入項目、先祖或季節名即可跳到該格並閃爍標示',
+                '新增分享連結：把當前分組的進度壓成網址，對方開啟為唯讀檢視，可選擇套用',
+                '新增單檔離線版匯出：資料內嵌進 HTML，可直接雙擊開啟，不需網路或伺服器',
+                '新增「隱藏畢業禮與季節項鍊」開關，隱藏的項目不計入統計（每季各自記住）',
+                '每層標題直接標出升級所需好感度，不必點了才知道門檻',
+                '新增左側分段式好感度進度條，填滿高度對應目前好感度所在的層級',
+                '同組卡片的控制列、兌換樹起點與底部統計自動對齊；嚮導因高度差異獨立成群',
+                '重寫嚮導版面規則（依分隔線切區塊、任務靠左、愛心與獎勵的欄位配置）',
+                '修正 ap29 以後嚮導的好感度來源：任務數值改由遊戲任務定義檔提供',
+                '圖片全面改用 skyinfoweb，動作類改為多幀動畫，等級解鎖圖示依解鎖狀態切換',
+                '三語翻譯改以遊戲內字串為準，修正簡中與英文欄位殘留繁體字的問題',
+                '長老與嚮導不再顯示陪伴欄位',
+                '項目格改為細邊框，加上靜止與滑鼠移入兩種狀態'
+            ],
+            'zh': [
+                '版面改为水平卷轴：所有先祖排成一条，左右滑动切换，手机页高大幅缩短',
+                '新增紧凑模式（手机默认开启），单格高度减少三成',
+                '新增跨分组搜索：输入项目、先祖或季节名即可跳到该格并闪烁标示',
+                '新增分享链接：把当前分组的进度压成网址，对方打开为只读查看，可选择套用',
+                '新增单档离线版导出：数据内嵌进 HTML，可直接双击打开，不需网络或服务器',
+                '新增"隐藏毕业礼与季节项链"开关，隐藏的项目不计入统计（每季各自记住）',
+                '每层标题直接标出升级所需好感度，不必点了才知道门槛',
+                '新增左侧分段式好感度进度条，填满高度对应目前好感度所在的层级',
+                '同组卡片的控制列、兑换树起点与底部统计自动对齐；向导因高度差异独立成群',
+                '重写向导版面规则（依分隔线切区块、任务靠左、爱心与奖励的栏位配置）',
+                '修正 ap29 以后向导的好感度来源：任务数值改由游戏任务定义档提供',
+                '图片全面改用 skyinfoweb，动作类改为多帧动画，等级解锁图标依解锁状态切换',
+                '三语翻译改以游戏内字串为准，修正简中与英文栏位残留繁体字的问题',
+                '长老与向导不再显示陪伴栏位',
+                '项目格改为细边框，加上静止与鼠标移入两种状态'
+            ],
+            'en': [
+                'Horizontal layout: spirits sit in one row and scroll sideways, cutting page height on phones',
+                'Added compact mode (on by default on phones), about 30% shorter cells',
+                'Added search across every group: type an item, spirit or season name to jump to that cell',
+                'Added share links: the current group\'s progress is packed into the URL as a read-only view the recipient can apply',
+                'Added single-file offline export: data is inlined into the HTML so it opens straight from disk',
+                'Added a "Hide Season Heart items" toggle; hidden items are left out of the totals (remembered per season)',
+                'Each tier heading now shows the affection needed to reach it',
+                'Added a segmented affection bar on the left of each card',
+                'Controls, tree start and footer now line up across cards in a group; guides align as their own group',
+                'Rewrote the guide layout rules (tier blocks, quests on the left, heart and reward column placement)',
+                'Fixed affection for ap29+ guides: quest values now come from the game quest definitions',
+                'All images now come from skyinfoweb, emotes animate, and the tier icon follows the unlocked state',
+                'Translations now follow the in-game strings; fixed Traditional text left in the Simplified and English columns',
+                'Elders and guides no longer show the companion field',
+                'Thinner item borders with distinct resting and hover states'
+            ]
+        }
+    },
+    { ver: 'v1.0.0', date: '2026-07-04',
+        changes: {
+            'zh-hant': [
+                '首次發布：季節先祖解鎖計算器',
+                '支援先祖解鎖進度追蹤，點擊項目即可標記解鎖',
+                '自動計算總需求季蠟、已花費季蠟與總好感度',
+                '新增陪伴好感度累加功能，可手動輸入好感度數值',
+                '新增「還需天數」估算（依每日蠟燭獲取量與初始蠟燭計算）',
+                '新增進度條顯示當季蠟燭花費比例',
+                '支援多方案切換，可為不同玩家建立獨立進度紀錄',
+                '新增資料匯出/匯入功能，方便備份與跨裝置轉移',
+                '新增單一先祖重置與整季重置功能'
+            ],
+            'zh': [
+                '首次发布：季节先祖解锁计算器',
+                '支持先祖解锁进度追踪，点击项目即可标记解锁',
+                '自动计算总需求季蜡、已花费季蜡与总好感度',
+                '新增陪伴好感度累加功能，可手动输入好感度数值',
+                '新增"还需天数"估算（依每日蜡烛获取量与初始蜡烛计算）',
+                '新增进度条显示当季蜡烛花费比例',
+                '支持多方案切换，可为不同玩家建立独立进度记录',
+                '新增数据导出/导入功能，方便备份与跨设备转移',
+                '新增单一先祖重置与整季重置功能'
+            ],
+            'en': [
+                'Initial release: Season Spirit Calculator',
+                'Track spirit item unlock progress with a single click',
+                'Auto-calculate total required candles, candles spent, and total affection',
+                'Added companion affection tracker with manual input',
+                'Added estimated "days remaining" based on daily candle income and starting candles',
+                'Added progress bar showing candle spending ratio for the season',
+                'Support multiple profiles for tracking different players independently',
+                'Added export/import for backup and cross-device transfer',
+                'Added per-spirit reset and full-season reset',
+            ]
+        }
+    }
+];
+
+let currentLang = localStorage.getItem('sky_tool_lang') || 'zh-hant';
+let spiritData = {};             // spirits.data.json（無語言，機器產）
+let i18nData = {};               // spirits.i18n.json（人工養）
+let imageData = {};              // spirits.images.json（人工養）
+let dataMeta = null;             // spirits.data.json 的 _meta（build 版本與輸入戳記）
+
+/* 圖片查表。項目用遊戲原始節點名當鍵（heart_point），先祖頭像用 spirit.<代碼>。
+   鍵不放在 data.json 裡是因為那支檔每次 build 都整個覆蓋，填的圖會被洗掉。 */
+function imageOf(key, kind) {
+    // 先查節點專屬圖，沒有才退到類別共用圖（item.lootbox 之類）
+    // 值可能是字串，也可能是陣列（動作的 gif 影格），原樣回傳由呼叫端處理
+    if (key && imageData[key]) return imageData[key];
+    if (kind && imageData['item.' + kind]) return imageData['item.' + kind];
+    return '';
+}
+const firstFrame = v => Array.isArray(v) ? (v[0] || '') : (v || '');
+
+/* 動作的 gif：影格存成網址陣列。用一支共用計時器推進全部動畫圖，
+   不要每張圖各開一個 setInterval —— 一頁可能有上百張。
+   每次重繪會清空登記表，避免累積已移除的節點。 */
+const animated = [];
+let animTick = 0, animTimer = null;
+const ANIM_MS = 400;
+function resetAnimations() { animated.length = 0; }
+function registerAnimation(img, frames) {
+    frames.forEach(u => { const p = new Image(); p.src = u; });   // 預載，換圖才不閃
+    animated.push({ img, frames });
+    if (!animTimer) {
+        animTimer = setInterval(() => {
+            animTick++;
+            for (const a of animated) {
+                if (!a.img.isConnected) continue;
+                a.img.src = a.frames[animTick % a.frames.length];
+            }
+        }, ANIM_MS);
+    }
+}
+let currentSeason = "";          // 分組代碼，例如 season_28 / regular
+let items = [];
+
+/* --- i18n 查表：缺字串時退到繁中，再退到 key 本身 --- */
+function t18(key) {
+    const tryLangs = [currentLang, 'zh-hant'];
+    for (const l of tryLangs) {
+        const v = i18nData[l] && i18nData[l][key];
+        if (v) return v;
+    }
+    return key.split('.').slice(1).join('.') || key;
+}
+const groupName  = g  => t18(`group.${g}`);
+const spiritName = sp => t18(`spirit.${sp}`);
+const itemName   = k  => t18(`item.${k}`);
+let spiritExpMap = {};
+const EXP_PER_ITEM = 100;        // 陪伴一天 = 100 好感（exp 欄位改用 ta 原始 XP 後的刻度）
+let totalRequired = {};          // 幣別 -> 需求量（向量化後取代 totalRequiredCandle）
+let hasPass = true;              // 是否擁有季卡
+let dailyGain = PASS_ECONOMY.withPass.daily;
+let initialCandle = 30;
+
+/* 季卡／經濟參數以 profile 為單位儲存 */
+function econKey() { return `${currentProfileId}_economy`; }
+
+// 「隱藏季節限定物品」= 用季節之心計價的全部項目（含成本 0 的項鍊）及季節限定（例如九色鹿面具）。
+// 一個季節一個開關，狀態跟經濟設定放在一起（每個分組各自記住）。
+let hideReward = false;
+function isHidden(item) { return hideReward && !!item.rw; }   // rw 由 Python 標記
+function toggleHideReward() {
+    hideReward = document.getElementById('hideRewardToggle').checked;
+    const e = readEconomy();
+    e.hideReward = e.hideReward || {};
+    e.hideReward[currentSeason] = hideReward;
+    localStorage.setItem(econKey(), JSON.stringify(e));
+    loadSeasonData();      // 隱藏會改變嚮導版面與統計，整組重算
+    updateUI();
+}
+function readEconomy() {
+    try {
+        const e = JSON.parse(localStorage.getItem(econKey()) || '{}');
+        return (e && typeof e === 'object') ? e : {};
+    } catch (_) { return {}; }
+}
+function loadEconomy() {
+    const e = readEconomy();
+    hasPass = e.hasPass !== false;
+    dailyGain = Number.isFinite(e.dailyGain) ? e.dailyGain
+              : (hasPass ? PASS_ECONOMY.withPass.daily : PASS_ECONOMY.noPass.daily);
+    initialCandle = Number.isFinite(e.initialCandle) ? e.initialCandle : 30;
+    hideReward = !!(e.hideReward && e.hideReward[currentSeason]);
+    syncEconomyInputs();
+}
+function saveEconomy() {
+    // 合併寫回，不要把 hideReward（每季各自的設定）洗掉
+    const e = readEconomy();
+    localStorage.setItem(econKey(),
+        JSON.stringify({ ...e, hasPass, dailyGain, initialCandle }));
+}
+function syncEconomyInputs() {
+    const p = document.getElementById('passToggle');
+    const d = document.getElementById('dailyGain');
+    const i = document.getElementById('initialCandle');
+    const h = document.getElementById('hideRewardToggle');
+    if (p) p.checked = hasPass;
+    if (d) d.value = dailyGain;
+    if (i) i.value = initialCandle;
+    if (h) h.checked = hideReward;
+}
+function togglePass() {
+    hasPass = document.getElementById('passToggle').checked;
+    // 切換季卡時，日產跟著回到該狀態的預設值
+    dailyGain = hasPass ? PASS_ECONOMY.withPass.daily : PASS_ECONOMY.noPass.daily;
+    if (!hasPass) {
+        // 無季卡時，已勾選的季卡限定項目一律取消，避免算進不可能拿到的成本
+        items.filter(i => i.season).forEach(i => i.unlocked = false);
+        saveState();
+    }
+    saveEconomy();
+    syncEconomyInputs();
+    updateUI();
+}
+function updateEconomy() {
+    const d = parseInt(document.getElementById('dailyGain').value, 10);
+    const i = parseInt(document.getElementById('initialCandle').value, 10);
+    dailyGain = Number.isFinite(d) && d >= 0 ? d : dailyGain;
+    initialCandle = Number.isFinite(i) && i >= 0 ? i : initialCandle;
+    saveEconomy();
+    syncEconomyInputs();
+    updateUI();
+}
+/* 該項目在目前季卡狀態下是否可取得 */
+function isObtainable(item) { return hasPass || !item.season; }
+
+let spiritProfiles;
+try {
+    const raw = JSON.parse(localStorage.getItem('spiritProfiles'));
+    spiritProfiles = Array.isArray(raw) && raw.length ? raw : null;
+} catch (_) { spiritProfiles = null; }
+if (!spiritProfiles) spiritProfiles = [{ id: 'spirit_default', name: '預設方案 / Default' }];
+let currentProfileId = localStorage.getItem('currentSpiritProfileId') || spiritProfiles[0].id;
+
+/* 版本對照按鈕什麼時候出現。
+
+   沒有線上舊版資料時，按下去會跳檔案選擇，要使用者自己挑快照 —— 這對維護者有用，
+   對玩家沒有意義（他們手上沒有快照），只會看到一個看不懂的對話框。所以：
+     本機（file://、localhost）     一律顯示，維護者在自己電腦上用
+     線上有 data/spirits.prev.json  顯示，這時按下去直接載入，不會跳檔案選擇
+     網址帶 ?compare                強制顯示，線上測試用
+   其他情況藏起來。HEAD 請求只問存不存在，不下載內容。 */
+function initDiffButton() {
+    const btn = document.getElementById('ui-diff');
+    if (!btn) return;
+    const local = location.protocol === 'file:' ||
+                  /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    const forced = new URLSearchParams(location.search).has('compare');
+    if (local || forced) { btn.style.display = ''; return; }
+    fetch('data/spirits.prev.json', { method: 'HEAD' })
+        .then(r => { if (r.ok) btn.style.display = ''; })
+        .catch(() => {});
+}
+
+function initApp() {
+    const theme = localStorage.getItem('sky_tool_theme') || 'light';
+    if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    document.getElementById('langSelect').value = currentLang;
+    // 沒存過就看螢幕寬度決定預設：手機預設開，桌機預設關。存過就照存的。
+    const cp = localStorage.getItem('sky_tool_compact');
+    const compactOn = cp === null ? window.innerWidth < 700 : cp === '1';
+    document.body.classList.toggle('compact', compactOn);
+    document.getElementById('compactToggle').checked = compactOn;
+    
+    // data 與 i18n 分家：data 機器產（可隨時覆蓋），i18n 人工養（只累加）
+    // 三份檔案：data 機器產（可覆蓋），i18n 與 images 人工養（只累加）
+    // 單檔離線版把三份資料內嵌在 <script id="embedded-data"> 裡，優先用它。
+    // file:// 下 fetch 相對路徑會被 CORS 擋，所以離線版非這樣不可。
+    const embedded = document.getElementById('embedded-data');
+    const source = embedded
+        ? Promise.resolve(JSON.parse(embedded.textContent))
+        : Promise.all([
+            fetch('data/spirits.data.json').then(r => r.json()),
+            fetch('data/spirits.i18n.json').then(r => r.json()),
+            fetch('data/spirits.images.json').then(r => r.json()).catch(() => ({}))
+          ]).then(([data, i18n, images]) => ({ data, i18n, images }));
+
+    source.then(bundle => {
+        // _meta 不是分組。在這裡一次拿掉，而不是在每個列舉分組的地方各過濾一次 ——
+        // 現在有兩處（分組選單、搜尋索引），漏掉任何一處就會多出一個空分組。
+        const raw = bundle.data || {};
+        dataMeta = raw._meta || null;
+        if (raw._meta) delete raw._meta;
+        spiritData = raw;
+        i18nData = bundle.i18n;
+        imageData = bundle.images || {};
+    }).catch(err => {
+        // 這個 catch 只蓋「拿不到資料」。渲染期的例外交給下面那個，
+        // 否則一個 ReferenceError 會被報成「無法載入資料」，查錯方向全錯。
+        console.error('[load]', err);
+        document.getElementById('spiritsContainer').textContent =
+            '無法載入資料 (Failed to load data).';
+        document.getElementById('spiritsContainer').style.cssText =
+            'color:red;text-align:center;';
+        throw err;
+    }).then(() => {
+        updateUIText();
+        updateProfileDropdown();
+        const shared = readShareHash();
+        if (shared) { sharedView = shared; currentSeason = shared.g; }
+        loadLangData();
+        if (sharedView) renderShareBar();
+    }).catch(err => {
+        if (!err || !err.__shown) console.error('[render]', err);
+    });
+    initDiffButton();
+    renderChangelog();
+    if (localStorage.getItem('sky_tool_changelog_collapsed') !== '0') {
+        document.getElementById('changelog-body').classList.add('collapsed');
+        document.getElementById('changelog-header').classList.add('collapsed');
+    }
+}
+
+/* ══════════ 搜尋 ══════════
+   跨全部分組搜尋，不限當前這一組 —— 常見的需求是「看到別人穿某件衣服，
+   想知道在誰身上、要多少蠟」，那件東西通常不在你正在看的季節。
+   索引只存座標（分組／先祖／索引），名稱在查詢時才查 i18n，
+   這樣切語言不必重建索引。1219 筆的線性掃描在手機上也是個位數毫秒。 */
+let searchIndex = null;
+let searchHits = [];
+let searchCursor = -1;
+
+function buildSearchIndex() {
+    const out = [];
+    Object.keys(spiritData).forEach(gk => {
+        const g = spiritData[gk];
+        Object.keys(g.spirits).forEach(code => {
+            g.spirits[code].items.forEach((it, idx) => {
+                out.push({ g: gk, code, idx, lv: it.level, k: it.k, src: it.src,
+                           cst: it.cst, ctyp: it.ctyp, tn: it.tn });
+            });
+        });
+    });
+    return out;
+}
+
+function runSearch() {
+    const box = document.getElementById('searchResults');
+    const q = document.getElementById('searchInput').value.trim().toLowerCase();
+    if (q.length < 1) { closeSearch(); return; }
+    if (!searchIndex) searchIndex = buildSearchIndex();
+
+    const t = uiDict[currentLang];
+    // 全表掃描，不提前中斷。1219 筆在降速 4 倍的手機上是 3~9ms，
+    // 中斷反而會讓排在資料後段的分組（常駐、長老）永遠搜不到。
+    searchHits = [];
+    for (const e of searchIndex) {
+        const nm = itemName(e.k), sp = spiritName(e.code), gp = t18(`group.${e.g}`);
+        const ln = nm.toLowerCase();
+        // 名稱完全相同 > 名稱開頭 > 名稱包含 > 只有先祖或分組名對上
+        let rank = -1;
+        if (ln === q) rank = 0;
+        else if (ln.startsWith(q)) rank = 1;
+        else if (ln.includes(q)) rank = 2;
+        else if (sp.toLowerCase().includes(q) || gp.toLowerCase().includes(q)) rank = 3;
+        if (rank >= 0) searchHits.push(Object.assign({ nm, sp, gp, rank }, e));
+    }
+    searchHits.sort((a, b) => a.rank - b.rank);     // 同 rank 維持資料順序
+    searchCursor = -1;
+    if (!searchHits.length) {
+        const em = document.createElement('div');
+        em.className = 'search-empty';
+        em.textContent = t.searchNone || 'No match';
+        box.innerHTML = '';
+        box.appendChild(em);
+        box.style.display = ''; return;
+    }
+    box.innerHTML = '';
+    const SHOWN = 50;
+    searchHits.slice(0, SHOWN).forEach((h, i) => {
+        const row = document.createElement('div');
+        row.className = 'search-row';
+        const img = document.createElement('img');
+        img.src = firstFrame(imageOf(h.src, h.k)) || '';
+        img.onerror = () => { img.style.visibility = 'hidden'; };
+        const icon = applyTint(img, h.tn);
+        const mid = document.createElement('div');
+        const l1 = document.createElement('div'); l1.className = 's-main'; l1.textContent = h.nm;
+        const l2 = document.createElement('div'); l2.className = 's-sub';
+        l2.textContent = `${h.sp} · ${h.gp} · Lv.${h.lv}`;
+        mid.append(l1, l2);
+        const cost = document.createElement('div'); cost.className = 's-cost';
+        cost.textContent = `${curLabel(currencyOf(h))} ${h.cst}`;
+        row.append(icon, mid, cost);
+        row.addEventListener('mousedown', ev => { ev.preventDefault(); gotoItem(h); });
+        box.appendChild(row);
+    });
+    if (searchHits.length > SHOWN) {       // 截斷時要講，不然使用者以為就這些
+        const more = document.createElement('div');
+        more.className = 'search-empty';
+        more.textContent = (t.searchMore || '{shown} of {total}')
+            .replace('{shown}', SHOWN).replace('{total}', searchHits.length);
+        box.appendChild(more);
+    }
+    box.style.display = '';
+}
+
+function searchKey(ev) {
+    if (ev.key === 'Escape') { closeSearch(); ev.target.blur(); return; }
+    const rows = [...document.querySelectorAll('#searchResults .search-row')];
+    if (!rows.length) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        searchCursor = (searchCursor + (ev.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length;
+        rows.forEach((r, i) => r.classList.toggle('active', i === searchCursor));
+        rows[searchCursor].scrollIntoView({ block: 'nearest' });
+    } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        gotoItem(searchHits[searchCursor < 0 ? 0 : searchCursor]);
+    }
+}
+
+function closeSearch() {
+    const box = document.getElementById('searchResults');
+    if (box) box.style.display = 'none';
+}
+
+/* 跳到搜尋結果：必要時先切分組，等重繪完才找得到那個格子 */
+function gotoItem(h) {
+    if (!h) return;
+    closeSearch();
+    const jump = () => {
+        const key = `season_data_${h.code}_${srcKey(h.src)}`;
+        const el = document.querySelector(`.item[data-key="${key}"]`);
+        if (!el) { showToast((uiDict[currentLang].searchHidden) || 'Hidden'); return; }
+        const card = el.closest('.spirit');
+        const cont = document.getElementById('spiritsContainer');
+        if (card && cont) cont.scrollTo({ left: Math.max(0, card.offsetLeft - 15), behavior: 'smooth' });
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.classList.remove('flash');
+        void el.offsetWidth;                     // 重新觸發動畫
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 2500);
+    };
+    if (currentSeason !== h.g) {
+        document.getElementById('seasonSelect').value = h.g;
+        switchSeason();
+        requestAnimationFrame(() => requestAnimationFrame(jump));
+    } else jump();
+}
+
+/* ══════════ 分享連結 ══════════
+   把當前這一組的解鎖狀態壓成 bitmap 放進 URL hash。
+   位元順序必須跟 loadSeasonData 產生 key 的順序完全一致，所以這裡
+   重走一次同樣的迴圈，而不是用 items（items 會被「隱藏畢業禮」過濾掉）。
+   格式：版本(1) + 項目數(2) + bitmap + 每隻先祖 3 bytes 的陪伴好感度 */
+function groupEntries(gk) {
+    const g = spiritData[gk], keys = [], codes = [];
+    Object.keys(g.spirits).forEach(code => {
+        codes.push(code);
+        g.spirits[code].items.forEach(it => keys.push(`season_data_${code}_${srcKey(it.src)}`));
+    });
+    return { keys, codes };
+}
+
+function b64urlEnc(bytes) {
+    let s = ''; bytes.forEach(b => s += String.fromCharCode(b));
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDec(str) {
+    const s = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+function shareLink() {
+    const { keys, codes } = groupEntries(currentSeason);
+    const bits = new Uint8Array(Math.ceil(keys.length / 8));
+    keys.forEach((k, i) => {
+        if (localStorage.getItem(`${currentProfileId}_${k}`) === 'true') bits[i >> 3] |= 1 << (i & 7);
+    });
+    const exp = new Uint8Array(codes.length * 3);
+    codes.forEach((c, i) => {
+        const v = Math.max(0, Math.min(16777215, Math.round(spiritExpMap[`season_data_${c}`] || 0)));
+        exp[i * 3] = v >> 16; exp[i * 3 + 1] = (v >> 8) & 255; exp[i * 3 + 2] = v & 255;
+    });
+    const head = new Uint8Array([1, keys.length >> 8, keys.length & 255]);
+    const all = new Uint8Array(head.length + bits.length + exp.length);
+    all.set(head, 0); all.set(bits, head.length); all.set(exp, head.length + bits.length);
+    const url = `${location.origin}${location.pathname}#s=${currentSeason}.${b64urlEnc(all)}`;
+    const t = uiDict[currentLang];
+    navigator.clipboard?.writeText(url).then(
+        () => showToast(`${t.shareCopied || 'Copied'} (${url.length} 字元)`),
+        () => prompt(t.shareCopied || 'Copy', url));
+}
+
+let sharedView = null;       // { g, unlocked:Set, exp:{} }
+
+function readShareHash() {
+    try { return parseShareHash(); }
+    catch (e) {                       // 壞掉的連結絕不能讓整頁渲染不出來
+        console.error('[share]', e);
+        return null;
+    }
+}
+
+function parseShareHash() {
+    const m = (location.hash || '').match(/^#s=([A-Za-z0-9_]+)\.([A-Za-z0-9\-_]+)$/);
+    if (!m) return null;
+    const gk = m[1];
+    // 必須是 spiritData 自己的屬性。直接寫 spiritData[gk] 會命中原型鏈上的
+    // __proto__ / constructor / toString —— 它們都是 truthy，往下走就會在
+    // Object.keys(g.spirits) 炸掉，整頁變空白。#s=__proto__.AQAh 即可重現。
+    if (!Object.prototype.hasOwnProperty.call(spiritData, gk)) return null;
+    let raw; try { raw = b64urlDec(m[2]); } catch (_) { return null; }
+    if (raw.length < 3 || raw[0] !== 1) return null;
+    const { keys, codes } = groupEntries(gk);
+    const n = (raw[1] << 8) | raw[2];
+    if (n !== keys.length) return { g: gk, stale: true };
+    const nb = Math.ceil(n / 8);
+    const unlocked = new Set();
+    keys.forEach((k, i) => { if (raw[3 + (i >> 3)] & (1 << (i & 7))) unlocked.add(k); });
+    const exp = {};
+    codes.forEach((c, i) => {
+        const o = 3 + nb + i * 3;
+        if (o + 2 < raw.length) exp[`season_data_${c}`] = (raw[o] << 16) | (raw[o + 1] << 8) | raw[o + 2];
+    });
+    return { g: gk, unlocked, exp };
+}
+
+function renderShareBar() {
+    const bar = document.getElementById('shareBar');
+    if (!bar) return;
+    if (!sharedView) { bar.style.display = 'none'; return; }
+    const t = uiDict[currentLang];
+    bar.innerHTML = '';
+    const msg = document.createElement('span');
+    if (sharedView.stale) {
+        const strong = document.createElement('b');
+        strong.textContent = t.shareStale || 'Link is out of date';
+        msg.appendChild(strong);
+        bar.append(msg);
+    } else {
+        const strong = document.createElement('b');
+        strong.textContent = t.shareViewing || 'Viewing shared progress';
+        msg.appendChild(strong);
+        const apply = document.createElement('button');
+        apply.className = 'btn-secondary'; apply.textContent = t.shareApply || 'Apply';
+        apply.onclick = applyShared;
+        const leave = document.createElement('button');
+        leave.className = 'btn-reset'; leave.textContent = t.shareLeave || 'Leave';
+        leave.onclick = leaveShared;
+        bar.append(msg, apply, leave);
+    }
+    bar.style.display = '';
+}
+
+function applyShared() {
+    if (!sharedView || sharedView.stale) return;
+    const { keys } = groupEntries(sharedView.g);
+    keys.forEach(k => localStorage.setItem(`${currentProfileId}_${k}`, sharedView.unlocked.has(k)));
+    Object.assign(spiritExpMap, sharedView.exp);
+    localStorage.setItem(`${currentProfileId}_spiritExpMap`, JSON.stringify(spiritExpMap));
+    leaveShared();
+    showToast(uiDict[currentLang].shareApplied || 'Applied');
+}
+
+function leaveShared() {
+    sharedView = null;
+    history.replaceState(null, '', location.pathname + location.search);
+    loadSeasonData();
+    renderShareBar();
+}
+
+/* ══════════ 單檔離線版 ══════════
+   現在的 1.html 下載下來雙擊是打不開的：file:// 的 origin 是 null，
+   fetch('data/*.json') 會被 CORS 擋掉。把三支 JSON 內嵌成一個 <script>
+   就沒有這個問題 —— 載入時優先讀內嵌資料，讀不到才走 fetch。 */
+async function exportOffline() {
+    const t = uiDict[currentLang];
+    try {
+        showToast(t.offlineWait || 'Packing...');
+        const res = await fetch(location.href.split('#')[0], { cache: 'no-store' });
+        let html = await res.text();
+        // 移除上一版的內嵌標籤（重複匯出時）。只在 <head> 範圍內找 ——
+        // 整份搜尋會比對到本函式自己的樣板字串，然後一路吃到主程式的結束標籤，
+        // 把半個程式刪掉（實測匯出檔會從這行註解處被截斷）。
+        const headEnd = html.indexOf('</head>');
+        const marker = 'id="' + 'embedded-data' + '"';
+        const at = html.lastIndexOf(marker, headEnd);
+        if (at !== -1) {
+            const open = html.lastIndexOf('<scr' + 'ipt', at);
+            const close = html.indexOf('</scr' + 'ipt>', at);
+            if (open !== -1 && close !== -1 && close < headEnd)
+                html = html.slice(0, open) + html.slice(close + 9);
+        }
+        // 所有 < 一律轉成 \u003c（JSON 讀回來完全相同）。
+        // 只轉義 </ 不夠：HTML 的 script 解析狀態機看到註解起始後接 script 開標籤
+        // 就會切換狀態（這裡不敢把那串字面寫出來，寫了這個 script 自己就會被截斷），
+        // 之後的結束標籤就關不掉這個區塊，匯出的檔案會靜默壞掉（實測 0 張卡、不報錯）。
+        const payload = JSON.stringify({ data: spiritData, i18n: i18nData, images: imageData })
+            .replace(/</g, '\\u003c')
+        const tag = `<scr` + `ipt id="embedded-data" type="application/json">${payload}</scr` + `ipt>\n`;
+        html = html.replace('</head>', tag + '</head>');
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `skytrust-offline-${new Date().toISOString().slice(0, 10)}.html`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        showToast(`${t.offlineDone || 'Saved'} (${Math.round(blob.size / 1024)} KB)`);
+    } catch (e) {
+        showToast(t.offlineFail || 'Export failed');
+        console.error('[offline export]', e);
+    }
+}
+
+/* 把白色線稿染成指定顏色。
+   feColorMatrix 把 RGB 全部壓成定值、alpha 原樣保留 —— 來源是純白時，
+   結果就是「同形狀的純色圖」。用 CSS filter 的 hue-rotate 做不到：
+   白色沒有色相，轉多少都還是白的。
+   color-interpolation-filters 一定要設 sRGB，預設的 linearRGB 會讓顏色偏亮。
+   同一個顏色只建立一次 filter，整頁共用。 */
+const tintCache = new Map();
+function tintFilter(color) {
+    if (tintCache.has(color)) return tintCache.get(color);
+    const m = /^#?([0-9a-f]{6})$/i.exec(color.trim());
+    if (!m) return '';
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    const NS = 'http://www.w3.org/2000/svg';
+    const id = 'tint-' + m[1].toLowerCase();
+    const defs = document.getElementById('tintDefs');
+    const f = document.createElementNS(NS, 'filter');
+    f.setAttribute('id', id);
+    f.setAttribute('color-interpolation-filters', 'sRGB');
+    const cm = document.createElementNS(NS, 'feColorMatrix');
+    cm.setAttribute('type', 'matrix');
+    cm.setAttribute('values', `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 1 0`);
+    f.appendChild(cm);
+    defs.appendChild(f);
+    const v = `url(#${id})`;
+    tintCache.set(color, v);
+    return v;
+}
+
+/* 回傳「要放進版面的那個元素」：沒染色就是 img 本身，有染色則是包著它的底板。
+   呼叫端一律 append 回傳值，不要 append img。 */
+function applyTint(img, tn) {
+    if (!tn) return img;
+    const f = tintFilter(tn);
+    if (!f) return img;
+    img.style.filter = f;
+    img.classList.add('tinted');
+    const tile = document.createElement('span');
+    tile.className = 'tint-tile';
+    tile.appendChild(img);
+    return tile;
+}
+
+/* 季卡角標用的是該季的「季節項鍊」圖，跟遊戲內兌換樹標記季卡節點的那枚一致。
+   網址不另外拼：spirits.images.json 已經有 CharSkyKid_Neck_AP{兩位數}Pendant 這組 key
+   （項鍊本身就是樹上的一個項目），所以這裡是查表，不是硬寫 CDN 路徑。
+   images.json 收的是 AP06～AP32，缺 AP16、AP22 —— 而那兩季的 pass 項目剛好是 0，
+   所以需要徽章的分組全部查得到。查不到就讓呼叫端退成字元。 */
+function seasonBadgeUrl(groupKey) {
+    const m = /^season_(\d+)$/.exec(groupKey || '');
+    if (!m) return null;
+    const key = `CharSkyKid_Neck_AP${String(parseInt(m[1], 10)).padStart(2, '0')}Pendant`;
+    return firstFrame(imageOf(key)) || null;
+}
+
+function showToast(msg) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+
+}
+function renderChangelog() {
+        const listContainer = document.getElementById('changelog-list');
+        if (!listContainer || typeof versionData === 'undefined') return;
+    
+        listContainer.innerHTML = versionData.map(item => {
+            const contentList = item.changes[currentLang] || item.changes['en'];
+            const listHtml = contentList.map(text => `<li>${text}</li>`).join('');
+    
+            return `
+                <div class="version-item">
+                    <div class="version-header">
+                        <span class="version-tag">${item.ver}</span>
+                        <span class="version-date">${item.date}</span>
+                    </div>
+                    <ul class="version-content">
+                        ${listHtml}
+                    </ul>
+                </div>
+            `;
+        }).join('');
+    }
+    
+
+// --- 切換邏輯 ---
+function toggleChangelog() {
+        const header = document.getElementById('changelog-header');
+        const body = document.getElementById('changelog-body');
+        const collapsed = body.classList.toggle('collapsed');
+        header.classList.toggle('collapsed', collapsed);
+        localStorage.setItem('sky_tool_changelog_collapsed', collapsed ? '1' : '0');
+    }
+
+/* 緊湊模式是純顯示設定，跟方案、季節都無關，所以單獨一個全域 key，
+   不塞進 economy（那是每季各自記的）。切換只加減 class，不重繪，不碰進度。 */
+function toggleCompact() {
+    const on = document.getElementById('compactToggle').checked;
+    document.body.classList.toggle('compact', on);
+    localStorage.setItem('sky_tool_compact', on ? '1' : '0');
+    alignCardSections(document.getElementById('spiritsContainer'));  // 字級變了要重量
+}
+
+function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    localStorage.setItem('sky_tool_theme', isDark ? 'light' : 'dark');
+}
+
+function changeLang() {
+    currentLang = document.getElementById('langSelect').value;
+    localStorage.setItem('sky_tool_lang', currentLang);
+    updateUIText();
+    loadLangData(); 
+}
+
+function updateUIText() {
+    const t = uiDict[currentLang];
+    document.getElementById('ui-lang-label').textContent = t.langLabel;
+    document.getElementById('ui-title').textContent = t.title;
+    //document.getElementById('ui-home').textContent = t.home;
+    document.getElementById('ui-add-profile').textContent = t.addProf;
+    document.getElementById('ui-del-profile').textContent = t.delProf;
+    document.getElementById('ui-pass').textContent = t.pass;
+    document.getElementById('ui-hidereward').textContent = t.hideReward;
+    document.getElementById('ui-compact').textContent = t.compact;
+    document.getElementById('searchInput').placeholder = t.search;
+    document.getElementById('ui-share').textContent = t.share;
+    document.getElementById('ui-offline').textContent = t.offline;
+    renderShareBar();
+    renderChangelog();      // 更新紀錄是三語各一份，切語言要跟著重畫
+    document.getElementById('ui-daily').textContent = t.daily;
+    document.getElementById('ui-initial').textContent = t.initial;
+    document.getElementById('ui-reset-season').textContent = t.resetSeason;
+    document.getElementById('ui-export').textContent = t.export;
+    document.getElementById('ui-import').textContent = t.import;
+    document.getElementById('ui-diff').textContent = t.diff;
+    renderDiffBar();        // 對照列裡有用 i18n 查的先祖名，切語言要跟著重畫
+}
+
+function loadLangData() {
+    const sel = document.getElementById('seasonSelect');
+    sel.textContent = '';
+    // 分組 key 是代碼（season_28 / regular），顯示名查 i18n；季號大的排前面，regular 最後
+    const groups = Object.keys(spiritData).sort((a, b) => {
+        const na = /^season_(\d+)$/.exec(a), nb = /^season_(\d+)$/.exec(b);
+        if (na && nb) return +nb[1] - +na[1];
+        return na ? -1 : nb ? 1 : a.localeCompare(b);
+    });
+    if (!groups.length) return;
+    groups.forEach(g => {
+        const o = document.createElement('option');
+        o.value = g;
+        o.textContent = groupName(g);
+        sel.appendChild(o);
+    });
+    if (!groups.includes(currentSeason)) currentSeason = groups[0];
+    sel.value = currentSeason;
+    loadSeasonData();
+}
+
+function updateProfileDropdown() {
+    const select = document.getElementById('profileSelect');
+    select.innerHTML = '';
+    spiritProfiles.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.id;
+        option.textContent = p.name;
+        if (p.id === currentProfileId) option.selected = true;
+        select.appendChild(option);
+    });
+}
+
+function switchProfile() {
+    currentProfileId = document.getElementById('profileSelect').value;
+    localStorage.setItem('currentSpiritProfileId', currentProfileId);
+    loadSeasonData();
+}
+
+function addProfile() {
+    const name = prompt(uiDict[currentLang].profPrompt);
+    if (name && name.trim() !== '') {
+        const newId = 'spirit_profile_' + Date.now();
+        spiritProfiles.push({ id: newId, name: name.trim() });
+        localStorage.setItem('spiritProfiles', JSON.stringify(spiritProfiles));
+        currentProfileId = newId;
+        localStorage.setItem('currentSpiritProfileId', currentProfileId);
+        updateProfileDropdown();
+        loadSeasonData();
+        showToast('✅ 新增方案成功');
+    }
+}
+
+function deleteProfile() {
+    if (spiritProfiles.length <= 1) {
+        showToast('❌ 無法刪除最後一個方案');
+        return;
+    }
+    if (confirm(`確定要刪除當前方案嗎？`)) {
+        // 掃全部 key，不只當前季節（原本只刪 items 內的，其他季節會殘留）
+        const doomed = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(currentProfileId + '_')) doomed.push(k);
+        }
+        doomed.forEach(k => localStorage.removeItem(k));
+        spiritProfiles = spiritProfiles.filter(p => p.id !== currentProfileId);
+        currentProfileId = spiritProfiles[0].id;
+        localStorage.setItem('spiritProfiles', JSON.stringify(spiritProfiles));
+        localStorage.setItem('currentSpiritProfileId', currentProfileId);
+        updateProfileDropdown();
+        loadSeasonData();
+        showToast('🗑️ 方案已刪除');
+    }
+}
+
+function switchSeason() {
+    currentSeason = document.getElementById('seasonSelect').value;
+    historyFocus = null; historyView = false;     // 換組就回一般畫面
+    if (sharedView && sharedView.g !== currentSeason) {   // 換組就離開分享檢視
+        sharedView = null;
+        history.replaceState(null, '', location.pathname + location.search);
+        renderShareBar();
+    }
+    loadSeasonData();
+}
+
+/* ========== 版本對照 ==========
+
+   把兩份 spirits.data.json 的差異直接畫在兌換樹上，而不是另外做一頁更新說明。
+   這樣做的好處是不用為每一條變動寫三語文案：差異由樣式與數字表達，名稱沿用
+   既有的 i18n，整個功能只多一個 uiDict key（按鈕字）。
+
+   舊版資料從哪來，兩條路都支援：
+     線上  data/spirits.prev.json（有就自動用，部署時自己挑一份快照複製過去）
+     本機  抓不到就跳檔案選擇，直接開 snapshots/ 底下任一份
+
+   項目靠 (先祖代碼, src) 對齊 —— 跟進度鍵同一套身分，不受排序與層級變動影響。 */
+let prevData = null, prevMeta = null, diffOn = false, diffIndex = null;
+let prevSource = '';             // 舊版是從哪個檔案來的（檔名裡常帶日期，戳記缺席時拿來補）
+let historyVersions = [];        // 載入的所有快照，舊 -> 新：[{ data, meta, source }]
+let historyFocus = null;         // 正在看哪一隻先祖的版本歷史（先祖代碼）；null = 一般畫面
+let historyView = false;         // 歷史檢視中：所有格子唯讀
+let historyLabels = [];          // 歷史卡片條上各張卡的版本標籤（給對照列用）
+
+const DIFF_FIELDS = ['k', 'cst', 'ctyp', 'exp', 'level', 'pass'];
+
+function makeVersion(raw, source) {
+    const d = Object.assign({}, raw || {});
+    const meta = d._meta || null;
+    delete d._meta;
+    return { data: d, meta, source };
+}
+
+/* 一次可以載入好幾份快照。依版本標籤排序（戳記是 YYYY-MM-DD，字串排序就是時間序）。
+   兩版對照拿「最新那份」跟現在比 —— 載一份跟以前完全一樣；載好幾份時，
+   主畫面看的是最近一次改版，更早的歷史從各張卡片的 🕒 進去看。 */
+function setHistory(list) {
+    list.sort((a, b) => versionLabel(a.meta, a.source).localeCompare(versionLabel(b.meta, b.source)));
+    historyVersions = list;
+    const newest = list[list.length - 1];
+    prevData = newest.data;
+    prevMeta = newest.meta;
+    prevSource = newest.source;
+}
+
+function itemFieldDiff(o, n) {
+    const out = {};
+    DIFF_FIELDS.forEach(f => {
+        const a = o[f] === undefined ? null : o[f];
+        const b = n[f] === undefined ? null : n[f];
+        if (a !== b) out[f] = [a, b];
+    });
+    return out;
+}
+
+function buildDiffIndex() {
+    const idx = {};
+    Object.keys(spiritData).forEach(gk => {
+        const ng = spiritData[gk], og = prevData[gk];
+        const ge = { status: og ? 'same' : 'add', spirits: {} };
+        Object.keys(ng.spirits).forEach(code => {
+            const ns = ng.spirits[code], os = og && og.spirits[code];
+            const se = { status: os ? 'same' : 'add', items: {}, removed: [], fields: {} };
+            if (!os) {
+                ns.items.forEach(i => { se.items[srcKey(i.src)] = { status: 'add' }; });
+            } else {
+                ['tier', 'theta'].forEach(f => { if (ns[f] !== os[f]) se.fields[f] = [os[f], ns[f]]; });
+                if (JSON.stringify(ns.tiers || null) !== JSON.stringify(os.tiers || null)) {
+                    se.fields.tiers = [os.tiers, ns.tiers];
+                }
+                const om = {}, nm = {};
+                os.items.forEach(i => { om[srcKey(i.src)] = i; });
+                ns.items.forEach(i => { nm[srcKey(i.src)] = i; });
+                Object.keys(nm).forEach(k => {
+                    if (!(k in om)) { se.items[k] = { status: 'add' }; return; }
+                    const f = itemFieldDiff(om[k], nm[k]);
+                    if (Object.keys(f).length) se.items[k] = { status: 'chg', fields: f };
+                });
+                Object.keys(om).forEach(k => { if (!(k in nm)) se.removed.push(om[k]); });
+                if (Object.keys(se.fields).length || se.removed.length || Object.keys(se.items).length) {
+                    se.status = 'chg';
+                }
+            }
+            ge.spirits[code] = se;
+        });
+        // 舊版有、現在整隻不見的先祖：沒有卡片可以掛，只在對照列報數
+        ge.goneSpirits = og ? Object.keys(og.spirits).filter(c => !ng.spirits[c]) : [];
+        idx[gk] = ge;
+    });
+    // 舊版有、現在整組不見的分組，同樣只報數
+    idx.__goneGroups = Object.keys(prevData).filter(g => !spiritData[g]);
+    return idx;
+}
+
+function diffEntryOf(code) {
+    if (historyView) return null;          // 歷史卡的標記是跟左邊那張比，不是跟主對照比
+    if (!diffOn || !diffIndex) return null;
+    const ge = diffIndex[currentSeason];
+    return ge ? ge.spirits[code] : null;
+}
+
+/* 單一格子的狀態。幽靈格自己就是「移除」，其餘查索引。 */
+function diffMarkFor(item) {
+    if (item.__dm) return item.__dm;       // 歷史卡：組資料時已經算好
+    if (!diffOn || !diffIndex) return null;
+    if (item.gh) return { status: 'del', fields: {} };
+    const se = diffEntryOf(item.spiritCode);
+    return se ? (se.items[srcKey(item.src)] || null) : null;
+}
+
+/* 舊版有、現在沒有的項目 -> 幽靈格。
+
+   幽靈格只活在渲染層：不進 addCost、不存進度、不進分享 bitmap、不進搜尋索引
+   （搜尋與分享都走 spiritData 本身的 items，幽靈不在裡面，所以自動不受影響）。
+   其餘要排除的地方靠 item.gh 擋，一共四處，見 calcTotals / calcspiritLevels /
+   saveState / loadSeasonData。
+
+   版面上幽靈「自成一列」，兩種版型都是：
+     先祖樹  不併進每列三格的打包，另外開一列
+     嚮導    不進 row/col 格線，另外開一列
+   第一版是把嚮導的幽靈塞進額外右欄，結果格線多一欄、整列撐破卡片固定寬度
+   （實測溢出 69px）。列是滿版的、欄不是 —— 所以寧可往下長，不要往右長。
+   因此這裡不分配任何座標，排版由 ghostRows() 另外處理。 */
+function ghostItemsFor(gk, code, spirit) {
+    const se = diffEntryOf(code);
+    if (!se || !se.removed.length) return [];
+    return se.removed.map(it => Object.assign({}, it, { gh: 1 }));
+}
+
+/* 把某一層的幽靈切成每列最多 n 格，回傳一組 .items-row。
+   slots 有給的話（嚮導）就補隱形格把每列填到跟格線一樣寬，列寬才會一致。 */
+function ghostRows(ghosts, spiritItems, spiritKey, t, perRow, slots) {
+    const rows = [];
+    for (let i = 0; i < ghosts.length; i += perRow) {
+        const line = document.createElement('div');
+        line.className = 'items-row';
+        if (slots) line.style.width = 'auto';
+        else line.style.justifyContent = 'flex-start';
+        const slice = ghosts.slice(i, i + perRow);
+        slice.forEach(g => line.appendChild(createItemDiv(g, spiritItems, spiritKey, t)));
+        for (let c = slice.length; c < (slots || 0); c++) {
+            const gap = document.createElement('div');
+            gap.className = 'item';
+            gap.style.cssText = 'visibility:hidden;pointer-events:none;';
+            line.appendChild(gap);
+        }
+        rows.push(line);
+    }
+    return rows;
+}
+
+function diffCounts() {
+    const c = { add: 0, chg: 0, del: 0, cards: 0, gone: 0, groups: 0 };
+    if (!diffIndex) return c;
+    Object.keys(diffIndex).forEach(gk => {
+        if (gk === '__goneGroups') return;
+        const ge = diffIndex[gk];
+        c.gone += (ge.goneSpirits || []).length;
+        Object.keys(ge.spirits).forEach(code => {
+            const se = ge.spirits[code];
+            if (se.status !== 'same') c.cards++;
+            Object.keys(se.items).forEach(k => { c[se.items[k].status]++; });
+            c.del += se.removed.length;
+        });
+    });
+    c.groups = (diffIndex.__goneGroups || []).length;
+    return c;
+}
+
+/* 對照列兩端的版本標籤。
+
+   2026-11-13a 以前產的快照沒有 _meta，舊版那一端就拿不到戳記 —— 之前會顯示成
+   一個孤零零的「?」，看不出是哪一版。依序往下退：
+     1. _meta.inputs.spirit.stamp   正常情況（log 檔名裡的日期）
+     2. _meta.generated 的日期部分  有 _meta 但缺 spirit 那筆
+     3. 檔名裡的日期                snapshots/spirits.data.2026-10-15.….json 這種
+     4. 檔名本身                    至少知道載的是哪個檔
+     5. —                           真的什麼都沒有 */
+function versionLabel(meta, source) {
+    const st = meta && meta.inputs && meta.inputs.spirit && meta.inputs.spirit.stamp;
+    if (st && st !== 'unknown') return st;
+    const gen = meta && typeof meta.generated === 'string' && meta.generated.slice(0, 10);
+    if (gen && /^\d{4}-\d{2}-\d{2}$/.test(gen)) return gen;
+    const m = /(\d{4}-\d{2}-\d{2})/.exec(source || '');
+    if (m) return m[1];
+    if (source) return source;
+    return '\u2014';
+}
+
+function renderDiffBar() {
+    const bar = document.getElementById('diffBar');
+    if (!bar) return;
+    bar.textContent = '';
+    if (!diffOn || !diffIndex) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    if (historyFocus) {
+        // 歷史檢視：返回 + 先祖名 + 版本鏈。全部是符號、名稱與日期，不新增文案。
+        const back = document.createElement('button');
+        back.className = 'btn-secondary';
+        back.textContent = '\u27F5';
+        back.onclick = () => closeHistory();
+        const nm = document.createElement('b');
+        nm.textContent = spiritName(historyFocus);
+        const chain = document.createElement('span');
+        chain.className = 'stamp';
+        chain.textContent = historyLabels.join('  \u2192  ');
+        const x = document.createElement('button');
+        x.className = 'btn-secondary';
+        x.textContent = '\u2715';
+        x.onclick = () => toggleDiff();
+        bar.append(back, nm, chain, x);
+        return;
+    }
+    const ver = document.createElement('span');
+    ver.className = 'stamp';
+    ver.textContent = `${versionLabel(prevMeta, prevSource)} → ${versionLabel(dataMeta, '')}`;
+    ver.title = [prevSource, prevMeta && prevMeta.build, dataMeta && dataMeta.build]
+                    .filter(Boolean).join('  ');
+    bar.appendChild(ver);
+
+    const c = diffCounts();
+    [['var(--diff-add)', '+', c.add], ['var(--diff-chg)', '~', c.chg],
+     ['var(--diff-del)', '\u2212', c.del]].forEach(([col, sym, n]) => {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        const sw = document.createElement('i');
+        sw.className = 'sw'; sw.style.background = col;
+        const lab = document.createElement('b');
+        lab.textContent = `${sym}${n}`;
+        chip.append(sw, lab);
+        bar.appendChild(chip);
+    });
+    if (c.gone || c.groups) {
+        // 整隻／整組消失的沒有卡片可以掛，只能在這裡報數
+        const extra = document.createElement('span');
+        extra.className = 'stamp';
+        extra.textContent = `\u2212${c.gone}\u2009\u25A1${c.groups ? ' \u2212' + c.groups + '\u2009\u25A3' : ''}`;
+        bar.appendChild(extra);
+    }
+    const close = document.createElement('button');
+    close.className = 'btn-secondary';
+    close.textContent = '\u2715';
+    close.onclick = () => toggleDiff();
+    bar.appendChild(close);
+}
+
+function applyPrevAndRender() {
+    diffOn = true;
+    diffIndex = buildDiffIndex();
+    renderDiffBar();
+    loadSeasonData();
+}
+
+function toggleDiff() {
+    if (diffOn) {
+        diffOn = false; diffIndex = null;
+        historyFocus = null; historyView = false;
+        renderDiffBar(); loadSeasonData(); return;
+    }
+    if (prevData) { applyPrevAndRender(); return; }
+    fetch('data/spirits.prev.json')
+        .then(r => { if (!r.ok) throw new Error('no prev'); return r.json(); })
+        .then(j => { setHistory([makeVersion(j, 'spirits.prev.json')]); applyPrevAndRender(); })
+        .catch(() => document.getElementById('diffFile').click());   // 線上沒放就讓使用者自己挑快照
+}
+
+function loadPrevFile(ev) {
+    const files = [...(ev.target.files || [])];
+    ev.target.value = '';
+    if (!files.length) return;
+    Promise.all(files.map(f => f.text().then(txt => ({ f, txt }), () => null))).then(rs => {
+        const ok = [];
+        rs.forEach(r => {
+            if (!r) return;
+            try {
+                const j = JSON.parse(r.txt);
+                if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('not an object');
+                ok.push(makeVersion(j, r.f.name));
+            } catch (e) { console.error('[diff]', r.f.name, e); }
+        });
+        // 有壞檔就提示，但好的照樣用 —— 多選時一份壞掉不該拖垮整批
+        if (ok.length < files.length) showToast(uiDict[currentLang].importBad);
+        if (!ok.length) return;
+        historyFocus = null; historyView = false;
+        setHistory(ok);
+        applyPrevAndRender();
+    });
+}
+
+/* ========== 單一先祖的版本歷史 ==========
+
+   把一隻先祖在每份快照裡的樣子各畫成一張卡，舊 -> 新排成一排，最後一張是現在。
+   每張卡的 + ~ − 都是「跟左邊那張比」，所以 N 張卡等於 N−1 次兩版對照攤開來看。
+
+   跟整站切到某一版（之前討論的 D）的差別：這裡只動一隻先祖，畫的是唯讀卡，
+   items、進度、總計、分享一律不碰。離開歷史就回到原本的畫面，什麼都沒變。
+
+   連續幾版內容完全相同的會合併成一張，標籤寫成「起 … 迄」——
+   載了五份快照、這隻只改過一次的話，看到的是兩張卡而不是五張幾乎一樣的卡。 */
+
+function findSpirit(data, code) {
+    for (const gk of Object.keys(data || {})) {
+        const g = data[gk];
+        if (g && g.spirits && Object.prototype.hasOwnProperty.call(g.spirits, code)) {
+            return { gk, spirit: g.spirits[code] };
+        }
+    }
+    return null;
+}
+
+/* 拿來判斷「兩版這隻先祖有沒有實質差異」：只看語意欄位，排版欄位（row/col）不算 */
+function spiritSignature(sp) {
+    const its = sp.items.map(i => [srcKey(i.src)].concat(DIFF_FIELDS.map(f => i[f] === undefined ? null : i[f])))
+                        .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+    return JSON.stringify([sp.tier || null, sp.theta || null, sp.tiers || null, its]);
+}
+
+function historyChain(code) {
+    const raw = [];
+    historyVersions.forEach((v, vi) => {
+        const hit = findSpirit(v.data, code);
+        if (hit) raw.push({ gk: hit.gk, spirit: hit.spirit, meta: v.meta, source: v.source, vi, current: false });
+    });
+    const cur = findSpirit(spiritData, code);
+    if (cur) raw.push({ gk: cur.gk, spirit: cur.spirit, meta: dataMeta, source: '', vi: historyVersions.length, current: true });
+
+    // 合併連續相同的版本；保留最新那份的資料（語意相同，但排版欄位以新的為準）
+    const chain = [];
+    raw.forEach(e => {
+        const sig = spiritSignature(e.spirit);
+        const last = chain[chain.length - 1];
+        if (last && last.sig === sig) {
+            last.endLabel = versionLabel(e.meta, e.source);
+            last.spirit = e.spirit; last.gk = e.gk; last.meta = e.meta;
+            last.current = last.current || e.current;
+            return;
+        }
+        chain.push(Object.assign({}, e, { sig, startLabel: versionLabel(e.meta, e.source), endLabel: null }));
+    });
+    return chain;
+}
+
+function historyItems(entry, idx, prev, code) {
+    const sp = entry.spirit;
+    const sk = `hist${idx}_${code}`;
+    const deco = it => {
+        const o = Object.assign({}, it);          // 複製：標記不能寫回快照本身
+        o.spiritKey = sk;
+        o.spiritCode = code;
+        o.spiritKind = sp.kind;
+        o.spiritName = spiritName(code);
+        o.nm = itemName(o.k);
+        o.season = !!o.pass;
+        o.image = imageOf(o.src, o.k);
+        o.unlocked = false;
+        o.key = `hist_${sk}_${srcKey(o.src)}`;    // 前綴保證對不到任何存檔鍵
+        o.__sp = sp;                              // 門檻與可達層數讀這一版自己的
+        o.__gk = entry.gk;
+        return o;
+    };
+    const list = sp.items.map(deco).filter(i => !isHidden(i));
+    const card = { status: 'same', fields: {} };
+    if (prev) {
+        const om = {}, nm = {};
+        prev.spirit.items.forEach(i => { om[srcKey(i.src)] = i; });
+        sp.items.forEach(i => { nm[srcKey(i.src)] = i; });
+        let changed = false;
+        list.forEach(i => {
+            const k = srcKey(i.src);
+            if (!(k in om)) { i.__dm = { status: 'add' }; changed = true; return; }
+            const f = itemFieldDiff(om[k], nm[k]);
+            if (Object.keys(f).length) { i.__dm = { status: 'chg', fields: f }; changed = true; }
+        });
+        Object.keys(om).forEach(k => {
+            if (k in nm) return;
+            const g = deco(om[k]);
+            g.gh = 1;
+            g.__dm = { status: 'del', fields: {} };
+            g.key = `histgh_${sk}_${k}`;
+            changed = true;
+            if (!isHidden(g)) list.push(g);
+        });
+        ['tier', 'theta'].forEach(f => { if (sp[f] !== prev.spirit[f]) card.fields[f] = [prev.spirit[f], sp[f]]; });
+        if (JSON.stringify(sp.tiers || null) !== JSON.stringify(prev.spirit.tiers || null)) {
+            card.fields.tiers = [prev.spirit.tiers, sp.tiers];
+        }
+        if (changed || Object.keys(card.fields).length) card.status = 'chg';
+    } else if (entry.vi > 0) {
+        // 鏈上第一張，但前面還有更早載入的快照 -> 那些快照裡沒有這隻 = 這一版新增
+        card.status = 'add';
+        list.forEach(i => { i.__dm = { status: 'add' }; });
+    }
+    // 卡片層級的資訊掛在第一格上，renderSpiritCard 讀得到
+    let label = entry.startLabel + (entry.endLabel ? ' … ' + entry.endLabel : '');
+    const pb = prev && prev.meta && prev.meta.build, eb = entry.meta && entry.meta.build;
+    const crossBuild = card.status === 'chg' && pb && eb && pb !== eb;
+    if (list[0]) {
+        list[0].__card = card;
+        list[0].__ver = { label, current: entry.current, warn: crossBuild ? `build ${pb} → ${eb}` : '' };
+    }
+    return { list, label };
+}
+
+function renderHistory() {
+    const t = uiDict[currentLang];
+    const container = document.getElementById('spiritsContainer');
+    if (!container) return;
+    container.innerHTML = '';
+    resetAnimations();
+    const chain = historyChain(historyFocus);
+    const all = [];
+    historyLabels = [];
+    chain.forEach((e, i) => {
+        const r = historyItems(e, i, i ? chain[i - 1] : null, historyFocus);
+        historyLabels.push(r.label);
+        all.push(...r.list);
+    });
+    renderCards(container, all, calcTotals(all), t);
+    renderDiffBar();
+    window.scrollTo({ top: 0 });
+}
+
+function openHistory(code) {
+    historyFocus = code;
+    historyView = true;
+    renderHistory();
+}
+
+function closeHistory() {
+    historyFocus = null;
+    historyView = false;
+    renderDiffBar();
+    loadSeasonData();
+}
+
+function loadSeasonData() {
+    items = [];
+    try { spiritExpMap = JSON.parse(localStorage.getItem(`${currentProfileId}_spiritExpMap`) || '{}'); }
+    catch (_) { spiritExpMap = {}; }
+    if (spiritExpMap === null || typeof spiritExpMap !== 'object') spiritExpMap = {};
+    loadEconomy();
+    totalRequired = {};
+    const group = spiritData[currentSeason];
+    if (!group) return;
+
+    // 儲存鍵改用先祖代碼（全域唯一）。舊版用 season_data_s0 這種位置索引，
+    // 不含季節，所以不同季的 spirit1 會共用同一筆進度 —— 那是既有 bug。
+    Object.keys(group.spirits).forEach(code => {
+        const spirit = group.spirits[code];
+        const sk = `season_data_${code}`;
+        if (spiritExpMap[sk] === undefined) spiritExpMap[sk] = 0;
+
+        spirit.items.forEach(item => {
+            item.spiritKey = sk;
+            item.spiritCode = code;
+            item.spiritKind = spirit.kind;          // tree | guide
+            item.spiritName = spiritName(code);
+            item.nm = itemName(item.k);             // 顯示名查 i18n
+            item.season = !!item.pass;              // 季卡限定（沿用既有欄位名）
+            item.image = imageOf(item.src, item.k); // 節點專屬圖，退到類別共用圖
+            item.key = `${sk}_${srcKey(item.src)}`;     // 身分鍵，見 srcKey 上方說明
+            if (isHidden(item)) { item.unlocked = false; return; }
+            items.push(item);
+            addCost(totalRequired, currencyOf(item), parseFloat(item.cst) || 0);
+        });
+
+        // 幽靈格接在真實項目之後才推進 items，排版上它們自成一列（見 ghostItemsFor）
+        if (diffOn && diffIndex) {
+            ghostItemsFor(currentSeason, code, spirit).forEach(g => {
+                g.spiritKey = sk;
+                g.spiritCode = code;
+                g.spiritKind = spirit.kind;
+                g.spiritName = spiritName(code);
+                g.nm = itemName(g.k);
+                g.season = !!g.pass;
+                g.image = imageOf(g.src, g.k);
+                g.unlocked = false;
+                g.key = `gh_${sk}_${srcKey(g.src)}`;   // 前綴保證永遠對不到任何存檔鍵
+                if (isHidden(g)) return;
+                items.push(g);                          // 不進 addCost：它已經不存在了
+            });
+        }
+    });
+    // 這一組有沒有可隱藏的項目（只有嚮導有），沒有就不顯示開關
+    const wrap = document.getElementById('hideRewardWrap');
+    if (wrap) {
+        const has = Object.values(group.spirits)
+            .some(s => s.items.some(i => i.rw));
+        wrap.style.display = has ? '' : 'none';
+    }
+
+    const shared = sharedView && !sharedView.stale && sharedView.g === currentSeason ? sharedView : null;
+    if (shared) {
+        // 檢視別人的連結：狀態只活在記憶體，不碰 localStorage，也不覆蓋你的進度
+        items.forEach(i => { i.unlocked = shared.unlocked.has(i.key); });
+        Object.assign(spiritExpMap, shared.exp);
+    } else {
+        items.forEach(i => { i.unlocked = i.gh ? false : readFlag(i.key); });
+    }
+    updateUI();
+}
+
+/* 常駐分組（長老、六張地圖）沒有季節截止日 -> 不顯示天數、不受季卡影響 */
+function isTimeless() {
+    return currentSeason === 'elders' || currentSeason.startsWith('realm_');
+}
+
+/* --- 進度鍵：season_data_<先祖代碼>_<src> ---
+
+   用項目的身分（src）當鍵，不用它在陣列裡的位置。位置會隨遊戲改版而位移：
+   樹中間插一個節點，之後每一格的勾都會對到別的項目，不報錯也不清空。
+   src 不受插入、重排、改層級影響。
+
+   實測 (先祖代碼, src) 在 1219 個項目裡全域唯一；src 裡唯一的非法字元是
+   '.'（58 個 companion.*），換成 '_' 之後同一隻先祖內不撞鍵，最長 63 字，
+   在 DATA_KEY_RE 的 80 字上限內。
+
+   不讀任何舊格式。v1 的鍵是 season_data_s<序號>_lv<層>_i<位置>，序號不分季，
+   不同季的同一序號共用一筆紀錄 —— 存的是最後寫入的那一季，沒有正確的對照可以搬。 */
+function srcKey(src) {
+    return String(src || '').replace(/[^A-Za-z0-9_]/g, '_');
+}
+
+function readFlag(key) {
+    try { return localStorage.getItem(`${currentProfileId}_${key}`) === 'true'; }
+    catch (_) { return false; }   // 無痕模式或擋了儲存：當成沒勾
+}
+
+function saveState(){
+    // 配額滿了（或瀏覽器擋了儲存）時要出聲。原本會丟出未捕捉的例外，
+    // 點擊處理器中斷，畫面看起來正常但進度其實沒存進去。
+    try {
+        items.forEach(i => {
+            if (i.gh) return;                           // 幽靈格只是畫出來的，沒有進度
+            localStorage.setItem(`${currentProfileId}_${i.key}`, i.unlocked);
+        });
+        localStorage.setItem(`${currentProfileId}_spiritExpMap`, JSON.stringify(spiritExpMap));
+    } catch (e) {
+        console.error('[save]', e);
+        showToast(uiDict[currentLang].saveFail || 'Could not save progress');
+    }
+}
+
+/* --- 匯入驗證：只接受本工具自己的 key，其餘一律丟棄 --- */
+// 鍵數上限：鍵名規則允許任意 season_data_<80 字>，所以合法鍵的數量是無限的。
+// 實測匯入 6 萬個假鍵會全部寫進 localStorage（6 秒、6 萬筆垃圾），
+// 再大一點就會撐爆 5MB 配額，之後每次存檔都丟 QuotaExceededError。
+// 1219 個項目 x 幾個方案，2000 綽綽有餘。
+const MAX_IMPORT_KEYS = 2000;
+const PROFILE_ID_RE = /^spirit_(default|profile_\d{1,20})$/;
+const DATA_KEY_RE   = /^spirit_(?:default|profile_\d{1,20})_(?:spiritExpMap|economy|season_data_[A-Za-z0-9_]{1,80})$/;
+
+function isValidProfile(p) {
+    return p && typeof p === 'object'
+        && typeof p.id === 'string' && PROFILE_ID_RE.test(p.id)
+        && typeof p.name === 'string' && p.name.length > 0 && p.name.length <= 60;
+}
+
+function exportData() {
+    const data = { version: 1, profiles: spiritProfiles, dataStore: {} };
+    spiritProfiles.forEach(p => {
+        data.dataStore[`${p.id}_spiritExpMap`] = localStorage.getItem(`${p.id}_spiritExpMap`) || '{}';
+        const econ = localStorage.getItem(`${p.id}_economy`);
+        if (econ) data.dataStore[`${p.id}_economy`] = econ;
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith(`${p.id}_season_data_`)) {
+                data.dataStore[key] = localStorage.getItem(key);
+            }
+        }
+    });
+    const blob = new Blob([JSON.stringify(data, null, 4)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sky_season_backup.json';
+    a.click();
+    showToast('📥 匯出成功');
+}
+
+function importData(event) {
+    const file = event.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            if(!Array.isArray(data.profiles) || !data.dataStore || typeof data.dataStore !== 'object') {
+                alert('檔案格式錯誤！'); return;
+            }
+            const profiles = data.profiles.filter(isValidProfile);
+            if(profiles.length === 0) { alert('檔案格式錯誤！'); return; }
+            const validIds = new Set(profiles.map(p => p.id));
+
+            let skipped = data.profiles.length - profiles.length;
+            const accepted = [];
+            for (const [key, value] of Object.entries(data.dataStore)) {
+                // key 必須符合本工具格式，且前綴必須屬於這次匯入的 profile
+                const owner = profiles.find(p => key.startsWith(p.id + '_'));
+                if (DATA_KEY_RE.test(key) && owner && validIds.has(owner.id) && typeof value === 'string'
+                        && value.length <= 20000 && accepted.length < MAX_IMPORT_KEYS) {
+                    accepted.push([key, value]);
+                } else {
+                    skipped++;
+                }
+            }
+            localStorage.setItem('spiritProfiles', JSON.stringify(profiles));
+            accepted.forEach(([k, v]) => localStorage.setItem(k, v));
+            if (skipped > 0) showToast(uiDict[currentLang].importBad);
+            showToast('📤 匯入成功！重新載入中...');
+            setTimeout(() => location.reload(), 1200);
+        } catch (err) { alert('檔案格式錯誤！'); }
+    };
+    reader.readAsText(file);
+}
+
+/* --- 幣別向量工具 --- */
+function addCost(vec, code, n) {
+    if (!n) return vec;
+    vec[code] = (vec[code] || 0) + n;
+    return vec;
+}
+function currencyOf(item) { return item.ctyp || PRIMARY_CURRENCY; }
+
+function calcTotals(list = items){
+    let totalExp = 0;
+    const spent = {};            // 幣別 -> 已花
+    const required = {};         // 幣別 -> 需求（僅計可取得的項目）
+    const spiritTotals = {};     // spiritKey -> {exp, cost:{}}
+    const spiritRequired = {};   // spiritKey -> {}
+
+    list.forEach(i=>{
+        if (i.gh) return;                               // 已移除的項目不算需求也不算已花
+        const c = parseFloat(i.cst)||0;
+        const cur = currencyOf(i);
+        if(!spiritRequired[i.spiritKey]) spiritRequired[i.spiritKey] = {};
+        if(!spiritTotals[i.spiritKey]) spiritTotals[i.spiritKey] = {exp:0, cost:{}};
+
+        // 無季卡時，季卡限定項目不計入需求
+        if(isObtainable(i)){
+            addCost(required, cur, c);
+            addCost(spiritRequired[i.spiritKey], cur, c);
+        }
+
+        if(i.unlocked && isObtainable(i)){
+            const e = parseFloat(i.exp)||0;
+            totalExp += e;
+            addCost(spent, cur, c);
+            spiritTotals[i.spiritKey].exp += e;
+            addCost(spiritTotals[i.spiritKey].cost, cur, c);
+        }
+    });
+    return {totalExp, spent, required, spiritTotals, spiritRequired};
+}
+
+const MAX_TIER = 6;              // npc_default 現在有 6 層（舊版只有 5）
+
+/* 各層門檻。先用資料帶的 tiers（來自 trust_tier），沒有才從 items 自行累加。
+   自行累加只在「買光整棵樹剛好升到頂層」時才等價；elder_prairie 那種
+   不自足的樹會算出偏低的門檻，所以有真實值就優先用。 */
+function calcspiritLevels(spiritItems){
+    const sp = spiritItems[0] && (spiritItems[0].__sp || (spiritData[currentSeason] &&
+               spiritData[currentSeason].spirits[spiritItems[0].spiritCode]));
+    const out = {};
+    if (sp && sp.tiers) {
+        for (let lv = 2; lv <= MAX_TIER; lv++) {
+            if (sp.tiers[lv] !== undefined) out[lv] = sp.tiers[lv];
+        }
+        if (Object.keys(out).length) return out;
+    }
+    for (let lv = 2; lv <= MAX_TIER; lv++) {
+        out[lv] = spiritItems.filter(i => !i.gh && i.level < lv)
+                             .reduce((s, i) => s + (parseFloat(i.exp) || 0), 0);
+    }
+    return out;
+}
+
+function calcspiritCurrentExp(spiritKey, spiritItems){
+    const itemsExp = spiritItems.filter(i=>i.unlocked).reduce((sum,i)=>sum+(parseFloat(i.exp)||0),0);
+    return itemsExp + (spiritExpMap[spiritKey] || 0);
+}
+
+function calcMaxLevel(spiritKey, spiritItems){
+    const levelsExp = calcspiritLevels(spiritItems);
+    const currentTotalExp = calcspiritCurrentExp(spiritKey, spiritItems);
+    let maxLevel=1;
+    for(let lv=2; lv<=MAX_TIER; lv++){
+        if(levelsExp[lv] === undefined) break;
+        if(currentTotalExp >= levelsExp[lv]) maxLevel=lv;
+        else break;
+    }
+    return maxLevel;
+}
+
+/* 只用主幣別（季蠟）估天數；其他幣別不隨日產累積，另外顯示缺口 */
+function calcDaysRequired(spent, required) {
+    const need = (required[PRIMARY_CURRENCY] || 0) - (spent[PRIMARY_CURRENCY] || 0);
+    if (need <= 0) return 0;
+    const afterStart = need - initialCandle;
+    if (afterStart <= 0) return 0;
+    return dailyGain > 0 ? Math.ceil(afterStart / dailyGain) : Infinity;
+}
+
+/* ═══ 卡片繪製 ═══
+
+   原本這一整段都寫在 updateUI 裡面，跟儀表板、總計混在一起。抽出來的理由是
+   版本歷史：它要把「同一隻先祖的好幾個版本」各畫成一張卡，而每張卡的資料、
+   總計、對齊範圍都跟主畫面不同，不抽成函式就只能整段複製一份。
+
+   這是行為不變的重構：抽出前後用版面指紋（34 組 × 一般／緊湊 × 隱藏畢業禮
+   開／關，逐格記錄位置、class、文字）比對，必須完全相同。 */
+const ITEMS_PER_ROW = 3;
+
+function groupBySpirit(list) {
+    const grouped = {};
+    list.forEach(i => {
+        if (!grouped[i.spiritKey]) grouped[i.spiritKey] = [];
+        grouped[i.spiritKey].push(i);
+    });
+    return grouped;
+}
+
+/* 先祖樹各層要墊到幾列，才能讓同一排的卡片分層對齊。嚮導不參與。 */
+function computeMaxRowsPerLevel(grouped) {
+    const maxRowsPerLevel = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0};
+    Object.keys(grouped).forEach(spiritKey => {
+        const spiritItems = grouped[spiritKey];
+        // 嚮導走自己的 row/col 版面，不吃 maxRowsPerLevel。
+        // 讓它參與計算只會把同季每隻先祖的該層憑空墊高一列空白。
+        if (spiritItems[0].spiritKind === 'guide') return;
+        const lvGroups = {};
+        for(let lv=1; lv<=6; lv++) lvGroups[lv] = spiritItems.filter(i=>i.level===lv && !i.gh);
+        
+        for(let lv=1; lv<=6; lv++){
+            const levelItems = lvGroups[lv];
+            // 幽靈自成一列（見 ghostItemsFor），列數另外加，不混進下面的打包
+            const ghostN = spiritItems.filter(i => i.gh && i.level === lv).length;
+            const ghostRowsN = ghostN ? Math.ceil(ghostN / ITEMS_PER_ROW) : 0;
+            if(levelItems.length === 0 && !ghostRowsN) continue;
+            
+            let rowCount = ghostRowsN;
+            const spiritGroups = {};
+            levelItems.forEach(item=>{
+                const sID = item.spirit || 0;
+                if(!spiritGroups[sID]) spiritGroups[sID]=[];
+                spiritGroups[sID].push(item);
+            });
+            
+            Object.keys(spiritGroups).forEach(sID => {
+                const itemsInspirit = spiritGroups[sID];
+                // build 有給 row/col（2026-11-25m 起）：列數就是最高列 + 1
+                if (itemsInspirit.every(i => i.row !== undefined && i.col !== undefined)) {
+                    rowCount += Math.max(...itemsInspirit.map(i => i.row)) + 1;
+                    return;
+                }
+                const ns = itemsInspirit.filter(i=>!i.season).length;
+const ss = itemsInspirit.filter(i=>i.season).length;
+const nonSeasonRows = ns > 0 ? Math.ceil(ns / ITEMS_PER_ROW) : 0;
+// 第一個季卡併入非季卡的最底列（該列要還有空位），其餘各佔一列
+const merge = ns > 0 && ns < ITEMS_PER_ROW;
+const seasonRows = ss > 0 ? (merge ? ss - 1 : ss) : 0;
+rowCount += nonSeasonRows + seasonRows;
+            });
+            
+            if (rowCount > maxRowsPerLevel[lv]) {
+                maxRowsPerLevel[lv] = rowCount;
+            }
+        }
+    });
+    return maxRowsPerLevel;
+}
+
+/* 畫一張先祖卡並回傳，不負責放進容器。
+   totals 與 maxRowsPerLevel 由呼叫端給：主畫面用整組的，版本歷史用那幾張卡自己的。 */
+function renderSpiritCard(spiritKey, spiritItems, t, totals, maxRowsPerLevel) {
+    const spiritName = spiritItems[0].spiritName;
+
+    const ancDiv = document.createElement('div');
+    ancDiv.className='spirit';
+    // 嚮導自成一群對齊（它比先祖樹高一倍，拉著大家一起長會空出一大片）
+    if (spiritItems[0].spiritKind === 'guide') ancDiv.classList.add('is-guide');
+
+    const header = document.createElement('div');
+    header.className='spirit-header';
+    header.textContent = spiritName;
+    const se = spiritItems[0].__card || diffEntryOf(spiritItems[0].spiritCode);
+    if (se && se.status !== 'same') {
+        ancDiv.classList.add('d-card-' + se.status);
+        const mk = document.createElement('i');
+        mk.className = 'd-mark';
+        mk.textContent = se.status === 'add' ? '+' : '~';
+        mk.style.background = se.status === 'add' ? 'var(--diff-add)' : 'var(--diff-chg)';
+        // 門檻／層數變動沒有格子可以掛，寫進卡片標題的 tooltip
+        const fb = Object.keys(se.fields || {});
+        if (fb.length) header.title = fb.map(f => {
+            const [o, n] = se.fields[f];
+            return f === 'tiers'
+                ? `tiers ${JSON.stringify(o)}\u2192${JSON.stringify(n)}`
+                : `${f} ${o}\u2192${n}`;
+        }).join('  ');
+        header.appendChild(mk);
+    }
+    if (spiritItems[0].spiritKind === 'guide') {
+        const badge = document.createElement('span');
+        badge.textContent = ' ' + t.guide;
+        badge.style.cssText = 'font-size:11px;color:var(--text-muted);font-weight:normal;';
+        header.appendChild(badge);
+    }
+    // 對照模式中，每張卡標題多一顆 🕒，點進去看這隻先祖的版本歷史
+    if (diffOn && !historyView && historyVersions.length) {
+        const hb = document.createElement('button');
+        hb.className = 'hist-btn';
+        hb.type = 'button';
+        hb.textContent = '\u{1F552}';
+        hb.title = `${spiritName} \u21C4`;
+        const code = spiritItems[0].spiritCode;
+        hb.onclick = ev => { ev.stopPropagation(); openHistory(code); };
+        ancDiv.appendChild(hb);
+        ancDiv.classList.add('has-hist');    // 掛在卡片右上角，不進標題：進標題會把標題撐高 1～20px，分層對齊就亂了
+    }
+    // 歷史卡：標題下面一行寫這張卡是哪一版
+    const ver = spiritItems[0].__ver;
+    if (ver) {
+        const v = document.createElement('div');
+        v.className = 'ver-tag' + (ver.current ? ' cur' : '');
+        v.textContent = ver.label;
+        if (ver.warn) {
+            // 跟左邊那張的 build 不同：這張卡上的差異可能有一部分是腳本改動，不是遊戲改版
+            const w = document.createElement('span');
+            w.className = 'warn';
+            w.textContent = '\u26A0';
+            v.appendChild(w);
+            v.title = ver.warn;
+        }
+        header.appendChild(v);
+    }
+    ancDiv.appendChild(header);
+
+    const controlsDiv = document.createElement('div');
+    controlsDiv.className = 'spirit-controls';
+    
+    const currentExpValue = spiritExpMap[spiritKey] || 0;
+
+    const inputGroup = document.createElement('div');
+    inputGroup.className = 'input-group';
+    // 好感度原值 + 換算天數，兩個都顯示（原值方便對照 log，天數方便玩家）
+    inputGroup.textContent = '';
+    const lab = document.createElement('span');
+    lab.textContent = `${t.compExp}: `;
+    const val = document.createElement('b');
+    val.textContent = `${Math.round(currentExpValue)} (${Math.round(currentExpValue / EXP_PER_ITEM * 10) / 10} ${t.day})`;
+    inputGroup.appendChild(lab);
+    inputGroup.appendChild(val);
+    
+    const actionRow = document.createElement('div');
+    actionRow.className = 'input-group';
+    
+    // 以「陪伴天數」輸入，內部換算成好感度（1 天 = EXP_PER_ITEM）
+    const inputExp = document.createElement('input');
+    inputExp.type = 'number';
+    inputExp.min = '1';
+    inputExp.step = '1';
+    inputExp.value = 1;
+    inputExp.title = `1 = ${EXP_PER_ITEM} ${t.exp}`;
+    inputExp.id = `input-${spiritKey}`;
+
+    const btnAddExp = document.createElement('button');
+    btnAddExp.textContent = `${t.addExp}`;
+    btnAddExp.onclick = () => {
+        const days = parseInt(inputExp.value, 10);
+        addspiritExp(spiritKey, (Number.isFinite(days) ? days : 1) * EXP_PER_ITEM);
+    };
+
+    actionRow.appendChild(inputExp);
+    actionRow.appendChild(btnAddExp);
+
+    const btnReset = document.createElement('button');
+    btnReset.className = 'btn-secondary';
+    btnReset.textContent = t.resetSpirit;
+    btnReset.style.marginTop = '4px';
+    btnReset.onclick = () => resetspirit(spiritKey);
+    
+    // 嚮導與長老都不能陪伴 —— 直接看這隻有沒有 companion 節點，
+    // 比列舉種類可靠：資料端不補節點，這裡就自動不給陪伴好感度的顯示與累加。
+    // 重置進度仍然要留著。
+    if (spiritItems.some(i => i.k === 'companion')) {
+        controlsDiv.appendChild(inputGroup);
+        controlsDiv.appendChild(actionRow);
+    }
+    controlsDiv.appendChild(btnReset);
+    if (historyView) controlsDiv.textContent = '';   // 歷史卡唯讀：殼留著給對齊量高度
+    ancDiv.appendChild(controlsDiv);
+    
+    const itemsContainer = document.createElement('div');
+    itemsContainer.style.width = '100%';
+    itemsContainer.style.marginBottom = '12px';   // footer 用 margin-top:auto 貼底，這裡給保底留白
+
+    // 嚮導走 row/col 版面：左＝任務鏈、中＝道具與愛心、右＝季節之心獎勵。
+    // 以 tt 切成一個個區塊往上接，每塊配一個 Lv 標籤（對應遊戲內的分隔線）。
+    if (spiritItems[0].spiritKind === 'guide' && spiritItems.some(i => i.row !== undefined)) {
+        // 隱藏畢業禮時右欄整欄釋出，版面不一樣 -> 改用 Python 預算好的 hrow/hcol
+        const RK = hideReward ? 'hrow' : 'row', CK = hideReward ? 'hcol' : 'col';
+        // 幽靈不進格線：它身上的 row/col 是舊版的座標，拿來 find 會跟現在的格子撞位
+        const grid = spiritItems.filter(i => !i.gh);
+        const ghostsByLv = {};
+        spiritItems.filter(i => i.gh).forEach(g => { (ghostsByLv[g.level] = ghostsByLv[g.level] || []).push(g); });
+        const maxRow = Math.max(...grid.map(i => i[RK] || 0));
+        const maxCol = Math.max(...grid.map(i => i[CK] || 0));
+        const levelOfRow = r => {
+            const it = grid.find(i => i[RK] === r);
+            return it ? it.level : null;
+        };
+        const buildLine = r => {
+            const line = document.createElement('div');
+            line.className = 'items-row';
+            line.style.width = 'auto';
+            for (let c = 0; c <= maxCol; c++) {
+                const it = grid.find(i => i[RK] === r && i[CK] === c);
+                if (it) {
+                    line.appendChild(createItemDiv(it, spiritItems, spiritKey, t));
+                } else {
+                    const gap = document.createElement('div');
+                    gap.className = 'item';
+                    gap.style.cssText = 'visibility:hidden;pointer-events:none;';
+                    line.appendChild(gap);
+                }
+            }
+            return line;
+        };
+        // 由上往下走，同一 Lv 的連續列收成一個 .level-row 區塊。
+        // .level-row 是 column-reverse：DOM 第一個在視覺最下方，標籤最後加 -> 在最上方。
+        // 幽靈所屬的層在現在的格線裡已經不存在時，掛到最上面那一塊，至少看得到
+        const gridLvs = new Set(grid.map(i => i.level));
+        const orphan = Object.keys(ghostsByLv).filter(lv => !gridLvs.has(+lv))
+                             .reduce((a, lv) => a.concat(ghostsByLv[lv]), []);
+        let firstBlock = true;
+        let r = maxRow;
+        while (r >= 0) {
+            const lv = levelOfRow(r);
+            let lo = r;
+            while (lo - 1 >= 0 && levelOfRow(lo - 1) === lv) lo--;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'level-row';
+            for (let rr = lo; rr <= r; rr++) wrapper.appendChild(buildLine(rr));
+            // .level-row 是 column-reverse：接在真實列後面 = 視覺上在它們上方、標籤下方
+            const gh = (ghostsByLv[lv] || []).concat(firstBlock ? orphan : []);
+            ghostRows(gh, spiritItems, spiritKey, t, maxCol + 1, maxCol + 1)
+                .forEach(line => wrapper.appendChild(line));
+            firstBlock = false;
+            wrapper.appendChild(makeLevelLabel(lv, spiritItems, spiritKey, t));
+            itemsContainer.appendChild(wrapLevelBlock(wrapper, lv, spiritItems, spiritKey));
+            r = lo - 1;
+        }
+        ancDiv.appendChild(itemsContainer);
+        // footer 與其他卡片共用，接著往下走
+        renderFooter(ancDiv, spiritKey, spiritItems, totals, t);
+        return ancDiv;
+    }
+
+    const lvGroups = {}, lvGhosts = {};
+    for(let lv=1; lv<=6; lv++){
+        lvGroups[lv] = spiritItems.filter(i=>i.level===lv && !i.gh);
+        lvGhosts[lv] = spiritItems.filter(i=>i.level===lv && i.gh);
+    }
+
+    // 由上往下繪製 (固定從 Lv.6 到 Lv.1)
+    [6, 5, 4, 3, 2, 1].forEach(level => {
+        if (maxRowsPerLevel[level] === 0) return; // 這個等級所有先祖都沒有，直接跳過
+
+        const levelItems = lvGroups[level] || [];
+        
+        const levelRowWrapper = document.createElement('div');
+        levelRowWrapper.className='level-row';
+
+        // label 後面還要當 insertBefore 的錨點（季節列插在標籤前），所以留著變數
+        const label = makeLevelLabel(level, spiritItems, spiritKey, t);
+        levelRowWrapper.appendChild(label);
+
+        let actualRowsRendered = 0; // 記錄這個先祖在這個 Level 實際畫了幾行
+
+        if (levelItems.length > 0) {
+            const spiritGroups = {};
+            levelItems.forEach(item=>{
+                const sID = item.spirit || 0;
+                if(!spiritGroups[sID]) spiritGroups[sID]=[];
+                spiritGroups[sID].push(item);
+            });
+
+            Object.keys(spiritGroups).sort((a,b)=>a-b).forEach(sID=>{
+                const itemsInspirit = spiritGroups[sID];
+                // build 2026-11-25m 起先祖樹也給 row/col（該層內，0 = 最下面一列）：
+                // 右欄是季卡與陪伴，左兩欄其餘物品蛇行。照格子畫，空格用隱形佔位撐住。
+                // 舊版資料（版本歷史裡的快照）沒有 col，走下面原本的排法。
+                if (itemsInspirit.every(i => i.row !== undefined && i.col !== undefined)) {
+                    const maxR = Math.max(...itemsInspirit.map(i => i.row));
+                    for (let r = 0; r <= maxR; r++) {
+                        const line = document.createElement('div');
+                        line.className = 'items-row';
+                        for (let c = 0; c < ITEMS_PER_ROW; c++) {
+                            const it = itemsInspirit.find(i => i.row === r && i.col === c);
+                            if (it) {
+                                line.appendChild(createItemDiv(it, spiritItems, spiritKey, t));
+                            } else {
+                                const gap = document.createElement('div');
+                                gap.className = 'item';
+                                gap.style.cssText = 'visibility:hidden;pointer-events:none;';
+                                line.appendChild(gap);
+                            }
+                        }
+                        // .level-row 是 column-reverse：插在標籤前、照列號往上疊
+                        levelRowWrapper.insertBefore(line, label);
+                        actualRowsRendered++;
+                    }
+                    return;
+                }
+                const nonSeason = itemsInspirit.filter(i=>!i.season);
+                const season = itemsInspirit.filter(i=>i.season);
+
+                // 非季節：每列最多 ITEMS_PER_ROW 個。
+                // 第一列靠左，第二列起靠右（同一層放不下而換行時，後續列向右對齊）
+                for(let i=Math.floor((nonSeason.length-1)/ITEMS_PER_ROW)*ITEMS_PER_ROW; i>=0; i-=ITEMS_PER_ROW){
+                    const slice = nonSeason.slice(i, i+ITEMS_PER_ROW);
+                    const innerRow = document.createElement('div');
+                    innerRow.className='items-row';
+                    innerRow.style.justifyContent = i === 0 ? 'flex-start' : 'flex-end';
+                    slice.forEach(item=>{
+                        innerRow.appendChild(createItemDiv(item, spiritItems, spiritKey, t));
+                    });
+                    levelRowWrapper.insertBefore(innerRow, levelRowWrapper.firstChild);
+                    actualRowsRendered++;
+                }
+
+                // 先存好非季節最後一列的參考，之後 insertBefore 會改變 firstChild
+                const nonSeasonLastRow = nonSeason.length > 0 ? levelRowWrapper.firstChild : null;
+
+                // 最底列已經滿了（常駐先祖一層 3 個非季卡、又多了季卡，例如 nothanks lv2）
+                // 就不併，季卡全部各自一列，跟沒有非季卡時一樣
+                if(nonSeasonLastRow && nonSeasonLastRow.children.length < ITEMS_PER_ROW){
+                    // season[0] 併入非季節那列
+                    if(season.length > 0){
+                        const s0div = createItemDiv(season[0], spiritItems, spiritKey, t);
+                        s0div.style.marginLeft = 'auto'; // ← 加這行，靠右對齊
+                        nonSeasonLastRow.appendChild(s0div);
+                }
+                    // season[1..n] 各自一列，插在 label 前（正向插入，index 越大越靠近 label = 視覺越上方）
+                    for(let i=1; i<season.length; i++){
+                        const innerRow = document.createElement('div');
+                        innerRow.className='items-row';
+                        innerRow.style.justifyContent = 'flex-end';
+                        innerRow.appendChild(createItemDiv(season[i], spiritItems, spiritKey, t));
+                        levelRowWrapper.insertBefore(innerRow, label);
+                        actualRowsRendered++;
+                    }
+                } else {
+                    // 沒有非季節，所有季節各自一列，同樣插在 label 前
+                    for(let i=0; i<season.length; i++){
+                        const innerRow = document.createElement('div');
+                        innerRow.className='items-row';
+                        innerRow.style.justifyContent = 'flex-end';
+                        innerRow.appendChild(createItemDiv(season[i], spiritItems, spiritKey, t));
+                        levelRowWrapper.insertBefore(innerRow, label);
+                        actualRowsRendered++;
+                    }
+                }
+            });
+        } else if (!lvGhosts[level].length) {
+            // 如果這個先祖沒有這個 Level，把線條和字隱藏，但保留 DOM 結構
+            label.style.visibility = 'hidden';
+            levelRowWrapper.dataset.empty = '1';   // 邊框現在在外層 .level-block 上，包完才處理
+        }
+
+        // 幽靈列：插在標籤前，視覺上落在這一層真實項目的上方
+        ghostRows(lvGhosts[level], spiritItems, spiritKey, t, ITEMS_PER_ROW).forEach(line => {
+            levelRowWrapper.insertBefore(line, label);
+            actualRowsRendered++;
+        });
+
+        // --- 核心：補齊缺失的行數 (Invisible Padding) ---
+        const paddingRowsNeeded = maxRowsPerLevel[level] - actualRowsRendered;
+        const imgPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0ibm9uZSIvPjwvc3ZnPg==';
+        
+        for(let r = 0; r < paddingRowsNeeded; r++) {
+            const emptyRow = document.createElement('div');
+            emptyRow.className = 'items-row';
+            emptyRow.style.visibility = 'hidden'; // 設為隱形
+            emptyRow.style.pointerEvents = 'none'; // 防止誤觸
+            
+            // 塞入透明假節點撐開高度
+            emptyRow.innerHTML = `
+                    <div class="item" style="border-color:transparent; background:transparent; box-shadow:none;">
+                        <img src="${imgPlaceholder}">
+                        <div class="nm">_</div>
+                        <div>_</div>
+                        <div>_</div>
+                    </div>
+                `;
+            levelRowWrapper.insertBefore(emptyRow, label);
+        }
+
+        const block = wrapLevelBlock(levelRowWrapper, level, spiritItems, spiritKey);
+        if (levelRowWrapper.dataset.empty) {
+            // 這隻沒有這一層，整塊只是為了跟同季其他卡對齊而留的空白：
+            // 分隔線與進度條都不該出現
+            block.style.borderTopColor = 'transparent';
+            block.querySelector('.lv-seg').style.visibility = 'hidden';
+        }
+        itemsContainer.appendChild(block);
+    });
+    
+    ancDiv.appendChild(itemsContainer);
+
+    renderFooter(ancDiv, spiritKey, spiritItems, totals, t);
+    return ancDiv;
+}
+
+/* 一排卡片：分組 -> 算對齊列數 -> 逐張畫 -> 量高度補齊。 */
+function renderCards(container, list, totals, t) {
+    const grouped = groupBySpirit(list);
+    const maxRowsPerLevel = computeMaxRowsPerLevel(grouped);
+    Object.keys(grouped).forEach(k => {
+        container.appendChild(renderSpiritCard(k, grouped[k], t, totals, maxRowsPerLevel));
+    });
+    alignCardSections(container);   // 全部塞進 DOM 之後才量得到高度
+}
+
+function updateUI(){
+    // 所有重繪都會經過這裡（切語言、隱藏畢業禮、勾選…）。歷史檢視中一律改畫歷史，
+    // 否則任何一個開關都會把畫面打回一般模式。
+    if (historyFocus) { renderHistory(); return; }
+    const t = uiDict[currentLang];
+    const container = document.getElementById('spiritsContainer');
+    if (!container) return;
+    container.innerHTML='';
+    resetAnimations();          // 舊節點已被丟棄，登記表要跟著清空
+
+    const totals = calcTotals();
+    const days = calcDaysRequired(totals.spent, totals.required);
+
+    // --- 動態產生幣別標籤：每個出現過的幣別一組「已花 / 總需求」 ---
+    const row = document.getElementById('totalsRow');
+    row.innerHTML = '';
+    const tag = (label, value) => {
+        const d = document.createElement('div');
+        d.className = 'total-tag';
+        const l = document.createElement('span');
+        l.style.cssText = 'color:inherit;font-weight:bold;font-size:13px;margin:0;';
+        l.textContent = label;
+        const v = document.createElement('span');
+        v.textContent = value;
+        d.appendChild(l); d.appendChild(v);
+        row.appendChild(d);
+    };
+    // 主幣別排前面，其餘依 CURRENCIES 宣告順序
+    const codes = Object.keys(CURRENCIES).filter(c => (totals.required[c] || totals.spent[c]));
+    codes.sort((a, b) => (b === PRIMARY_CURRENCY) - (a === PRIMARY_CURRENCY));
+    codes.forEach(c => {
+        const icon = CURRENCIES[c].icon || '';
+        tag(`${icon}${curLabel(c)} ${t.t3}/${t.t1}:`,
+            `${totals.spent[c] || 0} / ${totals.required[c] || 0}`);
+    });
+    tag(t.t2, Math.round(totals.totalExp));
+    // 常駐先祖沒有季節截止日，天數估算對它們沒有意義
+    if (!isTimeless()) tag(t.t4, Number.isFinite(days) ? days : '∞');
+
+    // 進度條用該分組的主要幣別，而非固定季蠟（常駐是愛心/升華蠟燭）
+    const mainCur = codes[0] || PRIMARY_CURRENCY;
+    const reqP = totals.required[mainCur] || 0;
+    const spentP = totals.spent[mainCur] || 0;
+    const percent = reqP === 0 ? 0 : (spentP / reqP) * 100;
+    document.getElementById('seasonProgressBar').style.width = `${percent}%`;
+
+    if (!hasPass && !isTimeless()) {
+        const note = document.createElement('div');
+        note.className = 'pass-note';
+        note.textContent = t.noPassNote;
+        row.appendChild(note);
+    }
+    // 這一組還有舊版格式的先祖沒收錄，講明以免被當成全集
+    const partial = (spiritData[currentSeason] || {}).partial;
+    if (partial && partial.length) {
+        const note = document.createElement('div');
+        note.className = 'pass-note';
+        note.style.color = 'var(--text-muted)';
+        note.textContent = t.partialNote.replace('{n}', partial.length);
+        row.appendChild(note);
+    }
+
+    renderCards(container, items, totals, t);
+}
+
+/* 把同一群卡片的「名稱列」「控制列」「footer」補到一樣高，並把整張卡設成同高，
+   讓兌換樹從同一條線開始、footer 落在同一條線上。
+   高度差的來源有二：先祖名字長短不一會折行；嚮導與長老沒有陪伴輸入框，
+   控制列比別人矮一截。這兩個純 CSS 補不了（要的是「同組裡最高的那個」），
+   所以量一次再寫回 min-height。每次重繪跑一次，先清空再量，避免越量越高。
+   footer 也一起補：它靠 margin-top:auto 貼底，高度不同時下緣齊、上緣會差一行。 */
+function alignCardSections(container){
+    // 先祖樹與嚮導分兩群，各自齊平；兩群之間不互相牽動
+    [[...container.querySelectorAll('.spirit:not(.is-guide)')],
+     [...container.querySelectorAll('.spirit.is-guide')]].forEach(cards => {
+        if (!cards.length) return;
+        ['.spirit-header', '.spirit-controls', '.spirit-footer'].forEach(sel => {
+            const els = cards.map(c => c.querySelector(sel)).filter(Boolean);
+            if (!els.length) return;
+            els.forEach(e => { e.style.minHeight = ''; });
+            const h = Math.max(...els.map(e => e.getBoundingClientRect().height));
+            els.forEach(e => { e.style.minHeight = h + 'px'; });
+        });
+        // 區塊補完高度才量得準：卡片等高 -> footer 的 margin-top:auto 自動對齊下緣
+        cards.forEach(c => { c.style.height = ''; });
+        const H = Math.max(...cards.map(c => c.getBoundingClientRect().height));
+        cards.forEach(c => { c.style.height = H + 'px'; });
+    });
+}
+
+/* 卡片底部的幣別小計與可達等級；先祖樹與嚮導共用 */
+function renderFooter(ancDiv, spiritKey, spiritItems, totals, t){
+    const totalspiritExp = calcspiritCurrentExp(spiritKey, spiritItems);
+    const spT = totals.spiritTotals[spiritKey] || {exp:0, cost:{}};
+    const spReq = totals.spiritRequired[spiritKey] || {};
+
+    const footer = document.createElement('div');
+    footer.className = 'spirit-footer';
+    Object.keys(CURRENCIES)
+        .filter(c => spReq[c] || spT.cost[c])
+        .sort((a, b) => (b === PRIMARY_CURRENCY) - (a === PRIMARY_CURRENCY))
+        .forEach(c => {
+            const s = document.createElement('div');
+            s.textContent = `${CURRENCIES[c].icon || ''}${curLabel(c)} ${spT.cost[c] || 0} / ${spReq[c] || 0}`;
+            footer.appendChild(s);
+        });
+    const expLine = document.createElement('div');
+    expLine.textContent = `${t.t2} ${Math.round(totalspiritExp)}`;
+    footer.appendChild(expLine);
+    const sp = spiritItems[0].__sp || (spiritData[currentSeason] &&
+               spiritData[currentSeason].spirits[spiritItems[0].spiritCode]);
+    if (sp && sp.tier) {
+        const tierLine = document.createElement('div');
+        tierLine.textContent =
+            `${t.tierLbl} ${calcMaxLevel(spiritKey, spiritItems)} / ${sp.tier}`;
+        footer.appendChild(tierLine);
+    }
+    ancDiv.appendChild(footer);
+}
+
+/* 把一個 Lv 區塊包成「左進度條 + 右內容」。
+   區段的區間是 [本層門檻, 下一層門檻]：填滿的那一刻剛好就是升到下一層的那一刻，
+   所以整張卡由下往上看，填充的頂端就是你目前好感度所在的位置。
+   Lv.1 沒有門檻，下界取 0；最高層沒有下一個門檻，達到即視為滿。 */
+function wrapLevelBlock(levelRow, level, spiritItems, spiritKey){
+    const block = document.createElement('div');
+    block.className = 'level-block';
+    const seg = document.createElement('div');
+    seg.className = 'lv-seg';
+    const fill = document.createElement('i');
+
+    const need = calcspiritLevels(spiritItems);
+    const cur  = calcspiritCurrentExp(spiritKey, spiritItems);
+    const lo   = level <= 1 ? 0 : (need[level] !== undefined ? need[level] : 0);
+    const hi   = need[level + 1];
+    let pct;
+    if (hi === undefined || hi <= lo) pct = cur >= lo ? 100 : 0;
+    else pct = Math.max(0, Math.min(1, (cur - lo) / (hi - lo))) * 100;
+
+    // 整張樹每次點擊都會重建 DOM，CSS transition 沒有「舊狀態」可以接，
+    // 所以把上一次的高度／好感度記在全域，新元素先以舊值出生，下一幀再切到新值。
+    window.__lvAnim = window.__lvAnim || {};
+    const akey = spiritKey + '|' + level;
+    const prev = window.__lvAnim[akey] || { pct: 0, cur: 0 };
+    window.__lvAnim[akey] = { pct, cur };
+    fill.style.height = prev.pct + '%';
+    if (pct >= 100) fill.className = 'done';
+    else if (pct > 0) fill.className = 'now';
+    // 目前好感度落在這一層的區間內，才在這一段的填充前端顯示數字
+    const hasFront = cur >= lo && (hi === undefined || cur < hi);
+    let pill = null;
+    if (hasFront) {
+        pill = document.createElement('span');
+        pill.className = 'lv-now';
+        pill.textContent = Math.round(prev.cur);
+        fill.appendChild(pill);
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        fill.style.height = pct + '%';
+        if (pill) {
+            const from = prev.cur, to = cur, t0 = performance.now(), dur = 700;
+            const tick = now => {
+                const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+                pill.textContent = Math.round(from + (to - from) * e);
+                if (k < 1 && pill.isConnected) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+        }
+    }));
+    seg.title = hi === undefined ? `Lv.${level}` : `Lv.${level} → Lv.${level + 1}: ${Math.round(cur)} / ${hi}`;
+
+    seg.appendChild(fill);
+    block.appendChild(seg);
+    block.appendChild(levelRow);
+    return block;
+}
+
+/* 等級標籤：Lv.N 後面直接標出升到這一層所需的總好感度。
+   原本這個數字只有在使用者點了超過可達等級的項目時，才會從 alert 跳出來；
+   標在標籤上就不用先踩錯誤才知道門檻。
+   Lv.1 沒有門檻（calcspiritLevels 從 2 起算），所以只有層名。
+   已達成的畫成綠色，沒達成的沿用 muted —— 一眼看出卡在哪一層。 */
+function makeLevelLabel(level, spiritItems, spiritKey, t){
+    const label = document.createElement('div');
+    label.className = 'level-label';
+    label.textContent = 'Lv.' + level;
+    const need = calcspiritLevels(spiritItems)[level];
+    if (need !== undefined) {
+        const span = document.createElement('span');
+        span.className = 'lv-need';
+        span.textContent = ` ${t.needExp} ${need}`;
+        if (calcspiritCurrentExp(spiritKey, spiritItems) >= need) span.classList.add('met');
+        label.appendChild(span);
+    }
+    return label;
+}
+
+/* 對照用的 tooltip。欄位名一律借既有的 i18n（幣別名、好感、Lv），
+   所以整個功能不需要為變動內容再寫一套翻譯。 */
+function diffTitle(item, dm, t) {
+    if (dm.status === 'add') return '  +';
+    if (dm.status === 'del') return '  \u2212';
+    const f = dm.fields || {}, bits = [];
+    if (f.cst) bits.push(`${curLabel(currencyOf(item))} ${f.cst[0]}\u2192${f.cst[1]}`);
+    if (f.exp) bits.push(`${t.exp} ${f.exp[0]}\u2192${f.exp[1]}`);
+    if (f.level) bits.push(`Lv ${f.level[0]}\u2192${f.level[1]}`);
+    if (f.ctyp) bits.push(`${curLabel(f.ctyp[0] || PRIMARY_CURRENCY)}\u2192${curLabel(f.ctyp[1] || PRIMARY_CURRENCY)}`);
+    if (f.k) bits.push(`${itemName(f.k[0])}\u2192${itemName(f.k[1])}`);
+    if (f.pass) bits.push(`\u2726 ${f.pass[0] ? 1 : 0}\u2192${f.pass[1] ? 1 : 0}`);
+    return bits.length ? '  ~ ' + bits.join('  ') : '  ~';
+}
+
+function createItemDiv(item, spiritItems, spiritKey, t){
+    const div = document.createElement('div');
+    div.className = 'item';
+    if(item.unlocked) div.classList.add('unlocked');
+    if(item.season) div.classList.add('season');
+    const dm = diffMarkFor(item);
+    if (dm) {
+        div.classList.add('d-' + dm.status);
+        const mk = document.createElement('i');
+        mk.className = 'd-mark';
+        mk.textContent = dm.status === 'add' ? '+' : dm.status === 'del' ? '\u2212' : '~';
+        div.appendChild(mk);
+    }
+    const locked = !isObtainable(item);
+    if(locked) div.classList.add('locked');
+
+    const placeholder = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2RkZCIvPjxwYXRoIGQ9Ik0yNSAxNWwtMTAgMTBoMjB6IiBmaWxsPSIjOTk5Ii8+PC9zdmc+';
+
+    // 以 DOM API 建構，避免把資料欄位直接拼進 innerHTML
+    const img = document.createElement('img');
+    img.className = 'item-img';
+    // 有「開啟態」的類別（目前只有等級解鎖）勾選後換圖；點擊會整個 updateUI 重繪
+    const openImg = item.unlocked ? imageData[`item.${item.k}.open`] : null;
+    const frames = !openImg && Array.isArray(item.image) ? item.image : null;
+    img.src = openImg || firstFrame(item.image) || placeholder;
+    const icon = applyTint(img, item.tn);   // 染料與季心的白色線稿
+    img.onerror = () => { img.src = placeholder; };
+    div.appendChild(icon);
+    if (frames && frames.length > 1) registerAnimation(img, frames);
+
+    // 季卡限定的角標。圖載不到就退成 ✦（離線、CDN 掛掉、或那一季沒有徽章資產），
+    // 標記本身不會消失 —— 這是唯一還在指出「這格要季卡」的東西了。
+    if (item.season) {
+        const badge = document.createElement('i');
+        badge.className = 'pass-badge';
+        const url = seasonBadgeUrl(item.__gk || currentSeason);
+        if (url) {
+            const bi = document.createElement('img');
+            bi.alt = '';
+            bi.onerror = () => { bi.remove(); badge.classList.add('glyph'); };
+            bi.src = url;
+            badge.appendChild(bi);
+        } else {
+            badge.classList.add('glyph');
+        }
+        div.appendChild(badge);
+    }
+
+    div.dataset.key = item.key;     // 搜尋跳轉用
+    // 名稱那行掛 class：緊湊模式要單獨把它壓成一行（CSS .item .nm）
+    const line = (txt, cls) => {
+        const d = document.createElement('div');
+        d.textContent = txt;
+        if (cls) d.className = cls;
+        div.appendChild(d);
+    };
+    // 數字那兩行同時放「完整」與「縮寫」兩版，用 CSS 切（見 body.compact .full/.short）。
+    // 縮寫版是為了讓 46px 的格子一行放得下：「季節之心: 2」會折行，「💙2」不會。
+    const numLine = (full, short) => {
+        const d = document.createElement('div');
+        const a = document.createElement('span'); a.className = 'full'; a.textContent = full;
+        const b = document.createElement('span'); b.className = 'short'; b.textContent = short;
+        d.append(a, b);
+        div.appendChild(d);
+    };
+    const cur = currencyOf(item);
+    line(item.nm, 'nm');
+    // 對照模式下，有變動的欄位就把那一行直接寫成「舊→新」，不另外加行 ——
+    // 加行會改變格高，分層對齊就跑掉了。
+    const df = (dm && dm.fields) || {};
+    const cstTxt = df.cst ? `${df.cst[0]}\u2192${df.cst[1]}` : `${item.cst}`;
+    const expTxt = df.exp ? `${df.exp[0]}\u2192${df.exp[1]}` : `${item.exp}`;
+    numLine(`${curLabel(cur)}: ${cstTxt}`, `${(CURRENCIES[cur] || {}).icon || ''}${cstTxt}`);
+    numLine(`${t.exp}: ${expTxt}`, `♡${expTxt}`);
+    div.title = item.nm;                  // 緊湊模式名稱被截斷，全名靠 tooltip
+    if (dm) div.title = `${item.nm}${diffTitle(item, dm, t)}`;
+
+    if (item.gh || historyView) return div;   // 幽靈格、歷史卡都不可點
+
+    if(locked){
+        div.title = t.noPassNote;
+        return div;                       // 不綁 click，無季卡項目不可勾選
+    }
+
+    div.addEventListener('click', ()=>{
+        if (sharedView && !sharedView.stale) {     // 檢視分享時唯讀
+            showToast(uiDict[currentLang].shareReadonly || 'Read-only');
+            return;
+        }
+        const maxLevel = calcMaxLevel(spiritKey, spiritItems);
+        if(item.level <= maxLevel || item.unlocked){
+            item.unlocked=!item.unlocked;
+            saveState();
+            updateUI();
+        } else {
+            alert(`⚠️ ${t.errReq} ${item.spiritName} (Lv.${item.level})。\n${t.errReq2} ${calcspiritLevels(spiritItems)[item.level]||'??'}。`);
+        }
+    });
+    return div;
+}
+
+function addspiritExp(spiritKey, amount){
+    if(amount > 0){
+        spiritExpMap[spiritKey] = (spiritExpMap[spiritKey] || 0) + amount;
+        saveState();
+        updateUI();
+    }
+}
+
+function resetspirit(spiritKey){
+    if(confirm(`確定要重置這位先祖的進度嗎？`)){
+        items.filter(i => i.spiritKey === spiritKey).forEach(i => i.unlocked = false);
+        spiritExpMap[spiritKey] = 0;
+        saveState();
+        updateUI();
+    }
+}
+
+function resetSeason(){
+    if(confirm(`⚠️ 確定要重置當前季節的所有進度嗎？`)){
+        items.forEach(i=>i.unlocked=false);
+        Object.keys(spiritExpMap).forEach(key => {
+            spiritExpMap[key] = 0;
+        });
+        saveState();
+        updateUI();
+        showToast('🔄 季節已重置');
+    }
+}
+
+/* ══════════ 桌機的左右捲動：黏底代理捲軸＋拖曳 ══════════
+   CSS 那邊有完整說明。這裡只負責：量尺寸、雙向同步 scrollLeft、拖曳。 */
+function initHScroll() {
+    const cont = document.getElementById('spiritsContainer');
+    const bar = document.getElementById('hScroll');
+    if (!cont || !bar) return;
+    const inner = bar.firstElementChild;
+    let echoBar = null, echoCont = null;
+
+    // 代理捲軸的「可捲寬度比例」必須跟容器一樣，兩邊的 scrollLeft 才能一比一對應
+    const measure = () => {
+        const overflow = cont.scrollWidth - cont.clientWidth > 1;
+        bar.hidden = !overflow;
+        cont.classList.toggle('can-pan', overflow);
+        if (!overflow) return;
+        bar.style.width = cont.offsetWidth + 'px';
+        // 讓兩邊的「最大可捲距離」完全相等：scrollWidth - clientWidth
+        inner.style.width = (cont.scrollWidth - cont.clientWidth + bar.clientWidth) + 'px';
+        if (Math.abs(bar.scrollLeft - cont.scrollLeft) > 1) { echoBar = cont.scrollLeft; bar.scrollLeft = cont.scrollLeft; }
+    };
+    let pending = false;
+    const schedule = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => { pending = false; measure(); });
+    };
+
+    // 雙向同步。程式自己寫進去的值會在稍後觸發一次 scroll 事件（回音），要認出來忽略：
+    // 否則搜尋跳轉的 smooth 捲動途中，回音會帶著「舊位置」寫回容器，動畫被打斷、往回跳。
+    cont.addEventListener('scroll', () => {
+        if (echoCont !== null && Math.abs(cont.scrollLeft - echoCont) <= 1) { echoCont = null; return; }
+        echoCont = null;
+        if (Math.abs(bar.scrollLeft - cont.scrollLeft) > 1) { echoBar = cont.scrollLeft; bar.scrollLeft = cont.scrollLeft; }
+    }, { passive: true });
+    bar.addEventListener('scroll', () => {
+        if (echoBar !== null && Math.abs(bar.scrollLeft - echoBar) <= 1) { echoBar = null; return; }
+        echoBar = null;
+        if (Math.abs(cont.scrollLeft - bar.scrollLeft) > 1) { echoCont = bar.scrollLeft; cont.scrollLeft = bar.scrollLeft; }
+    }, { passive: true });
+
+    // 卡片數量（換季、對照模式、歷史）或寬度（緊湊模式、字級）一變就重量
+    new MutationObserver(schedule).observe(cont, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+    if (window.ResizeObserver) new ResizeObserver(schedule).observe(cont);
+    window.addEventListener('resize', schedule);
+    schedule();
+
+    // ---- 拖曳 ----
+    // 只接滑鼠左鍵；觸控與觸控筆維持原生滑動。按在可互動的東西上不接手，
+    // 移動超過 5px 才算拖曳，所以單純點一下的行為完全不變。
+    const INTERACTIVE = '.item, button, input, select, textarea, a, label, summary, [contenteditable]';
+    let id = null, startX = 0, startLeft = 0, moved = false, swallowUntil = 0;
+    cont.addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'mouse' || e.button !== 0) return;
+        if (!cont.classList.contains('can-pan')) return;
+        if (e.target.closest(INTERACTIVE)) return;
+        id = e.pointerId; startX = e.clientX; startLeft = cont.scrollLeft; moved = false;
+    });
+    cont.addEventListener('pointermove', e => {
+        if (e.pointerId !== id) return;
+        const dx = e.clientX - startX;
+        if (!moved) {
+            if (Math.abs(dx) < 5) return;
+            moved = true;
+            cont.setPointerCapture(id);
+            cont.classList.add('panning');
+            const sel = window.getSelection && window.getSelection();
+            if (sel) sel.removeAllRanges();        // 按下去那一刻可能已經開始選字
+        }
+        cont.scrollLeft = startLeft - dx;
+    });
+    const end = e => {
+        if (e.pointerId !== id) return;
+        id = null;
+        if (moved) {
+            cont.classList.remove('panning');
+            swallowUntil = performance.now() + 80;  // 放開時瀏覽器會補發一次 click
+        }
+    };
+    cont.addEventListener('pointerup', end);
+    cont.addEventListener('pointercancel', end);
+    // 用時間窗而不是 { once: true }：放開的位置不一定會產生 click，
+    // once 的監聽器若沒被觸發就會一直掛著，吃掉下一次真正的點擊。
+    cont.addEventListener('click', e => {
+        if (performance.now() < swallowUntil) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+}
+
+initApp();
+initHScroll();
+</script>
+</body>
+</html>
