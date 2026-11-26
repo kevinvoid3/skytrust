@@ -1,22 +1,22 @@
 {
  "_meta": {
   "build": "2026-11-26b",
-  "generated": "2026-11-26T14:11:45+08:00",
+  "generated": "2026-11-26T06:23:47+00:00",
   "inputs": {
    "spirit": {
-    "stamp": "2026-11-25"
+    "stamp": "2026-11-26"
    },
    "trust_tier": {
-    "stamp": "2026-11-25"
+    "stamp": "2026-11-26"
    },
    "quest_defs": {
-    "stamp": "2026-11-25"
+    "stamp": "2026-11-26"
    },
    "realms": {
-    "stamp": "2026-11-17"
+    "stamp": "2026-11-26"
    },
    "order": {
-    "stamp": "2026-11-25"
+    "stamp": "2026-11-26"
    }
   }
  },
@@ -12032,42 +12032,6 @@
       "pass": false,
       "src": "companion.nothanks",
       "row": 0,
-      "col": 2
-     },
-     {
-      "k": "outfit_hair",
-      "cst": 1,
-      "ctyp": "heart",
-      "exp": 100,
-      "level": 2,
-      "to": 0,
-      "pass": false,
-      "src": "CharSkyKid_Hair_TopOneSideS",
-      "row": 0,
-      "col": 0
-     },
-     {
-      "k": "lootbox",
-      "cst": 1,
-      "ctyp": "candles",
-      "exp": 100,
-      "level": 2,
-      "to": 1,
-      "pass": false,
-      "src": "lootbox_common_23",
-      "row": 0,
-      "col": 1
-     },
-     {
-      "k": "heart",
-      "cst": 3,
-      "ctyp": "candles",
-      "exp": 100,
-      "level": 2,
-      "to": 2,
-      "pass": false,
-      "src": "heart_nothanks",
-      "row": 1,
       "col": 1
      },
      {
@@ -12076,10 +12040,46 @@
       "ctyp": "candles",
       "exp": 100,
       "level": 2,
-      "to": 3,
-      "pass": true,
+      "to": 0,
+      "pass": false,
       "src": "emote_upgrade_nothanks_02",
       "row": 0,
+      "col": 0
+     },
+     {
+      "k": "outfit_hair",
+      "cst": 1,
+      "ctyp": "heart",
+      "exp": 100,
+      "level": 2,
+      "to": 1,
+      "pass": false,
+      "src": "CharSkyKid_Hair_TopOneSideS",
+      "row": 0,
+      "col": 1
+     },
+     {
+      "k": "lootbox",
+      "cst": 1,
+      "ctyp": "candles",
+      "exp": 100,
+      "level": 2,
+      "to": 2,
+      "pass": false,
+      "src": "lootbox_common_23",
+      "row": 0,
+      "col": 2
+     },
+     {
+      "k": "heart",
+      "cst": 3,
+      "ctyp": "candles",
+      "exp": 100,
+      "level": 2,
+      "to": 3,
+      "pass": false,
+      "src": "heart_nothanks",
+      "row": 1,
       "col": 2
      },
      {
@@ -12115,8 +12115,8 @@
       "to": 2,
       "pass": false,
       "src": "tier_unlock_nothanks_01",
-      "row": 1,
-      "col": 1
+      "row": 0,
+      "col": 2
      },
      {
       "k": "emote_04",
@@ -12148,7 +12148,7 @@
   "rows": {
    "1": 1,
    "2": 2,
-   "3": 2,
+   "3": 1,
    "4": 1
   }
  },
