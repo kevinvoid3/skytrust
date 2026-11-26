@@ -2,8 +2,8 @@ name: Fetch server data and build
 
 # 遊戲改版時，自己去伺服器抓兌換樹資料、build 成 data/spirits.*.json。
 #
-#   skydownload（公開）── accesskey.json（版本＋access key）、strings/（遊戲內字串）
-#        │ 只讀公開檔，不需要任何 token
+#   skydownload（公開）── accesskey（Workers KV，帶 token 讀）、strings/（遊戲內字串，公開檔）
+#        │ strings 只讀公開檔；accesskey 改走 Worker + 個人 token
 #        ▼
 #   這個 workflow ── 抓伺服器 → build → 檢查 → 只 commit data/ 底下的處理結果
 #
@@ -15,9 +15,10 @@ name: Fetch server data and build
 #   - 伺服器原始資料也只在 $RUNNER_TEMP，絕不進 repo、不上傳 artifact
 #   - build 與抓取的錯誤輸出（traceback 會印出程式碼行）只寫進暫存檔，不印進 log
 #   - commit 前檢查：只准 data/ 底下四個檔有變動，任何 .log 出現就整個失敗
+#   - accesskey 已改存 skydownload 的 Workers KV，改從 Worker 帶 token 讀（secret SKY_AK_TOKEN）
 on:
   schedule:
-    - cron: "41 */6 * * *"        # 每 6 小時看一次 accesskey.json 有沒有新版本（UTC）
+    - cron: "41 */6 * * *"        # 每 6 小時看一次 accesskey 有沒有新版本（UTC）
   workflow_dispatch:
     inputs:
       force:
@@ -35,6 +36,9 @@ permissions:
 
 env:
   UPSTREAM: https://raw.githubusercontent.com/kevinvoid3/skydownload/main
+  # accesskey 的 Worker 端點（兩服合併 {"tgc": {...}, "netease": {...}}）
+  AK_URL: https://skydownload-accesskey.sky-cotl.workers.dev/accesskey.json
+  SKY_SERVER: tgc          # skytrust 打國際服，從合併 JSON 挑這一服
   DATA_FILES: "spirits.data.json spirits.i18n.json spirits.images.json source.json"
 
 jobs:
@@ -46,11 +50,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download access key and strings from skydownload
+        env:
+          SKY_AK_TOKEN: ${{ secrets.SKY_AK_TOKEN }}
         run: |
           set -euo pipefail
           U="$RUNNER_TEMP/up"; mkdir -p "$U/Strings"/{zh-Hant,zh-Hans,Base}.lproj
           get() { curl -fsSL --max-filesize 20000000 -o "$2" "$UPSTREAM/$1" || { echo "::error::下載 $1 失敗"; exit 1; }; }
-          get accesskey.json                "$U/accesskey.json"
+          # accesskey 已移出公開 repo，改從 Worker 帶個人 token 讀合併 JSON；挑哪一服在後續步驟用 SKY_SERVER 決定
+          if [ -z "${SKY_AK_TOKEN:-}" ]; then
+            echo "::error::缺 secret SKY_AK_TOKEN（在 skydownload 的 worker/accesskey/ 用 token.py new skytrust 發一把）"; exit 1
+          fi
+          curl -fsSL --max-filesize 1000000 -H "Authorization: Bearer $SKY_AK_TOKEN" \
+               -o "$U/accesskey.json" "$AK_URL" \
+               || { echo "::error::讀 accesskey 失敗（token 失效、被撤銷，或 Worker 問題）"; exit 1; }
           # build_spirits.py 認得的是 iOS 的 lproj 結構；英文在 default.strings（en.strings 只有幾行）
           get strings/zh-TW.strings         "$U/Strings/zh-Hant.lproj/Localizable.strings"
           get strings/zh-CN.strings         "$U/Strings/zh-Hans.lproj/Localizable.strings"
@@ -65,9 +77,15 @@ jobs:
           import json, os, re, sys
           ak, src = sys.argv[1:]
           d = json.load(open(ak, encoding="utf-8"))
-          ver, key = d.get("version"), d.get("accesskey")
+          # 兩服合併格式挑 SKY_SERVER（預設 tgc）；相容舊的單物件 {version, accesskey}
+          server = os.environ.get("SKY_SERVER") or "tgc"
+          node = d if isinstance(d, dict) and "accesskey" in d else (d or {}).get(server)
+          if not isinstance(node, dict):
+              print(f"::error::accesskey.json 找不到伺服器 {server}（抽取失敗或格式不符）")
+              sys.exit(1)
+          ver, key = node.get("version"), node.get("accesskey")
           if not ver or not key:
-              print("::error::skydownload 的 accesskey.json 缺 version 或 accesskey（抽取失敗？）")
+              print(f"::error::accesskey.json 的 {server} 缺 version 或 accesskey（抽取失敗？）")
               sys.exit(1)
           try:
               last = json.load(open(src, encoding="utf-8")).get("game_version")
@@ -77,7 +95,7 @@ jobs:
           force = os.environ.get("FORCE") == "true"
           print(f"遊戲版本 {ver}；上次處理 {last or '（無）'}")
           if last and nums(ver) < nums(last) and not force:
-              print(f"::error::accesskey.json 的版本比目前資料舊（{ver} < {last}）")
+              print(f"::error::accesskey 的版本比目前資料舊（{ver} < {last}）")
               sys.exit(1)
           run = force or ver != last
           if not run:
